@@ -1,0 +1,8 @@
+{
+  "name": "Remix CPI/PMMA - Gestão da Jornada Operacional Extraordinária (JOE)",
+  "description": "Sistema completo de controle financeiro, operacional e administrativo da Jornada Operacional Extraordinária (JOE) do Comando de Policiamento do Interior (CPI/PMMA) para as unidades CPA/I-1 a CPA/I-9 sob a Portaria nº 122/2026-GCG.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
