@@ -602,7 +602,10 @@ class SupabaseService {
   // -------------------------------------------------------------
   public async fetchUsers(): Promise<User[] | null> {
     try {
-      const { data, error } = await supabase.from('users').select('*');
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .order('created_at', { ascending: true });
       if (error || !data) return null;
 
       return data.map((row: any) => ({
@@ -612,8 +615,14 @@ class SupabaseService {
         login: row.login,
         role: row.role as any,
         commandId: row.command_id || undefined,
+        rank: row.rank || undefined,
+        registration: row.registration || undefined,
         active: Boolean(row.active),
-        lastAccess: row.last_login || undefined,
+        lastAccess: row.last_login
+          ? new Date(row.last_login).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+          : 'Nunca acessou',
+        profileLabel: row.role === 'ADMIN' ? 'Administrador (CPI)' : 'CPA/I',
+        password: row.password || undefined,
       }));
     } catch {
       return null;
@@ -622,7 +631,16 @@ class SupabaseService {
 
   public async upsertUser(user: User): Promise<boolean> {
     try {
-      const dbRow = {
+      this.setStatus('SYNCING');
+      let validLastLogin: string | null = null;
+      if (user.lastAccess && user.lastAccess !== 'Nunca acessou') {
+        const parsed = new Date(user.lastAccess);
+        if (!isNaN(parsed.getTime())) {
+          validLastLogin = parsed.toISOString();
+        }
+      }
+
+      const dbRow: any = {
         id: user.id,
         name: user.name,
         email: user.email || null,
@@ -630,11 +648,35 @@ class SupabaseService {
         role: user.role,
         command_id: user.commandId || 'CPI',
         active: user.active ?? true,
-        last_login: user.lastAccess || new Date().toISOString(),
+        last_login: validLastLogin,
+        password: user.password || null,
+        rank: user.rank || null,
+        registration: user.registration || null,
+        updated_at: new Date().toISOString(),
       };
       const { error } = await supabase.from('users').upsert(dbRow);
+      if (error) {
+        console.error('Supabase upsertUser error:', error);
+        this.setStatus('CONNECTED');
+        return false;
+      }
+      this.setStatus('CONNECTED');
+      return true;
+    } catch (err) {
+      console.error('Supabase upsertUser exception:', err);
+      this.setStatus('CONNECTED');
+      return false;
+    }
+  }
+
+  public async deleteUser(id: string): Promise<boolean> {
+    try {
+      this.setStatus('SYNCING');
+      const { error } = await supabase.from('users').delete().eq('id', id);
+      this.setStatus('CONNECTED');
       return !error;
     } catch {
+      this.setStatus('CONNECTED');
       return false;
     }
   }

@@ -96,7 +96,22 @@ class StorageService {
           this.set(STORAGE_KEYS.BUDGETS, result.budgets, true);
         }
         if (result.users && result.users.length > 0) {
-          this.set(STORAGE_KEYS.USERS, result.users, true);
+          // Merge Supabase users with any local users to ensure no users are lost
+          const localUsers = this.getUsers();
+          const mergedUsers = [...result.users];
+          localUsers.forEach((localU) => {
+            const exists = mergedUsers.some(
+              (u) =>
+                u.id === localU.id ||
+                (u.login && localU.login && u.login.toLowerCase() === localU.login.toLowerCase())
+            );
+            if (!exists) {
+              mergedUsers.push(localU);
+              // Push local missing user to Supabase in background
+              supabaseService.upsertUser(localU).catch(console.warn);
+            }
+          });
+          this.set(STORAGE_KEYS.USERS, mergedUsers, true);
         }
         if (result.auditLogs && result.auditLogs.length > 0) {
           const cleanLogs = result.auditLogs.filter(
@@ -372,6 +387,7 @@ class StorageService {
     if (user) {
       user.active = !user.active;
       this.set(STORAGE_KEYS.USERS, users);
+      supabaseService.upsertUser(user).catch(console.warn);
       this.logAudit({
         userName: adminUser.name,
         userRole: adminUser.role,
@@ -389,12 +405,33 @@ class StorageService {
     if (user) {
       user.password = newPass;
       this.set(STORAGE_KEYS.USERS, users);
+      supabaseService.upsertUser(user).catch(console.warn);
       this.logAudit({
         userName: adminUser.name,
         userRole: adminUser.role,
         action: 'editar',
         recordId: `usuarios #${users.indexOf(user) + 1}`,
         description: `Redefinição de senha para o usuário ${user.login}`,
+        ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
+      });
+      return { success: true };
+    }
+    return { success: false };
+  }
+
+  deleteUser(userId: string, adminUser: User): { success: boolean } {
+    const users = this.getUsers();
+    const user = users.find((u) => u.id === userId);
+    if (user) {
+      const filtered = users.filter((u) => u.id !== userId);
+      this.set(STORAGE_KEYS.USERS, filtered);
+      supabaseService.deleteUser(userId).catch(console.warn);
+      this.logAudit({
+        userName: adminUser.name,
+        userRole: adminUser.role,
+        action: 'excluir',
+        recordId: `usuarios #${userId}`,
+        description: `Exclusão do usuário ${user.login} (${user.name})`,
         ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
       });
       return { success: true };

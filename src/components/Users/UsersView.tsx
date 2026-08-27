@@ -9,6 +9,7 @@ import {
   UserCheck,
   UserX,
   Building2,
+  Trash2,
 } from 'lucide-react';
 import { User, CommandUnit } from '../../types';
 
@@ -19,6 +20,7 @@ interface UsersViewProps {
   onSaveUser: (newUser: User) => void;
   onToggleStatus: (userId: string) => void;
   onResetPassword: (userId: string, newPass: string) => void;
+  onDeleteUser?: (userId: string) => void;
 }
 
 export function UsersView({
@@ -28,6 +30,7 @@ export function UsersView({
   onSaveUser,
   onToggleStatus,
   onResetPassword,
+  onDeleteUser,
 }: UsersViewProps) {
   const [nome, setNome] = useState('');
   const [login, setLogin] = useState('');
@@ -167,6 +170,27 @@ export function UsersView({
                         >
                           Redefinir
                         </button>
+                        {onDeleteUser && !isCurrent && (
+                          <>
+                            <span className="text-slate-300">·</span>
+                            <button
+                              onClick={() => {
+                                if (
+                                  window.confirm(
+                                    `Tem certeza que deseja excluir o usuário "${u.login}" (${u.name})?`
+                                  )
+                                ) {
+                                  onDeleteUser(u.id);
+                                }
+                              }}
+                              className="text-xs text-rose-600 hover:text-rose-800 hover:underline flex items-center gap-1 cursor-pointer"
+                              title="Excluir usuário"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Excluir</span>
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

@@ -160,6 +160,11 @@ export default function App() {
     reloadData();
   };
 
+  const handleDeleteUser = (userId: string) => {
+    storageService.deleteUser(userId, currentUser);
+    reloadData();
+  };
+
   // Navigation helpers from Dashboard
   const handleNavigateToLaunch = (commandCode?: string) => {
     setOperationToEdit(null);
@@ -338,6 +343,7 @@ export default function App() {
             onSaveUser={handleSaveUser}
             onToggleStatus={handleToggleUserStatus}
             onResetPassword={handleResetUserPassword}
+            onDeleteUser={handleDeleteUser}
           />
         )}
 
