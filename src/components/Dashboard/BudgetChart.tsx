@@ -10,14 +10,19 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { CommandBudget } from '../../types';
+import { getCommandOrderIndex } from './UnitSpendingChart';
 
 interface BudgetChartProps {
   budgets: CommandBudget[];
 }
 
 export const BudgetChart: React.FC<BudgetChartProps> = ({ budgets }) => {
-  const chartData = budgets.map((b) => ({
-    name: b.commandId,
+  const sortedBudgets = [...budgets].sort(
+    (a, b) => getCommandOrderIndex(a.commandId) - getCommandOrderIndex(b.commandId)
+  );
+
+  const chartData = sortedBudgets.map((b) => ({
+    name: b.commandId.startsWith('CPI') ? 'CPI' : b.commandId,
     Orçado: b.budgetAmount,
     Gasto: b.committedAmount + b.executedAmount,
     Saldo: Math.max(0, b.availableBalance),
@@ -31,7 +36,7 @@ export const BudgetChart: React.FC<BudgetChartProps> = ({ budgets }) => {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-sm font-bold text-[#00204A]">
-            Comparativo Orçamentário por Comando de Área (CPA/I-1 a CPA/I-9)
+            Comparativo Orçamentário por Comando de Área (CPI e CPA/I-1 a CPA/I-9)
           </h3>
           <p className="text-[11px] text-slate-500">
             Orçamento Inicial vs Valor Comprometido/Executado vs Saldo Disponível

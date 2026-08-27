@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { HeaderNav } from './components/HeaderNav';
 import { DashboardView } from './components/Dashboard/DashboardView';
 import { CreateJoeView } from './components/Operations/CreateJoeView';
@@ -10,7 +10,11 @@ import { LegislationView } from './components/Legislation/LegislationView';
 import { CreateOrdinanceModal } from './components/Periods/CreateOrdinanceModal';
 import { UsersView } from './components/Users/UsersView';
 import { AuditView } from './components/Audit/AuditView';
+import { DatabaseConnectionTestView } from './components/Database/DatabaseConnectionTestView';
+import { BackupManagerModal } from './components/Backup/BackupManagerModal';
+import { LoginView } from './components/Auth/LoginView';
 import { storageService } from './services/storageService';
+import { googleDriveBackupService } from './services/googleDriveBackupService';
 import {
   OperationLaunch,
   CommandBudget,
@@ -24,8 +28,8 @@ export default function App() {
   // Navigation active tab: PAINEL | LANCAR_JOE | LANCAMENTOS | TETOS | PERIODOS | RELATORIOS | USUARIOS | AUDITORIA
   const [activeTab, setActiveTab] = useState<string>('PAINEL');
 
-  // Application State
-  const [currentUser, setCurrentUser] = useState<User>(storageService.getCurrentUser());
+  // Application State - Authenticated user session
+  const [currentUser, setCurrentUser] = useState<User | null>(storageService.getSessionUser());
   const [users, setUsers] = useState<User[]>(storageService.getUsers());
   const [ordinances, setOrdinances] = useState<OrdinancePeriod[]>(storageService.getOrdinances());
   const [activeOrdinance, setActiveOrdinance] = useState<OrdinancePeriod>(storageService.getActiveOrdinance());
@@ -36,6 +40,7 @@ export default function App() {
 
   // Modal State
   const [isCreateOrdinanceOpen, setIsCreateOrdinanceOpen] = useState(false);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
 
   // Edit / Pre-fill state
   const [launchPreselectedCpa, setLaunchPreselectedCpa] = useState<string>('');
@@ -52,7 +57,34 @@ export default function App() {
     setBudgets(storageService.getBudgets(currentOrd.id));
     setOperations(storageService.getOperations());
     setAuditLogs(storageService.getAuditLogs());
+    const session = storageService.getSessionUser();
+    setCurrentUser(session);
   }, []);
+
+  // Initialize Supabase on mount
+  useEffect(() => {
+    storageService.initSupabase().then(() => {
+      reloadData();
+    });
+  }, [reloadData]);
+
+  // Listen to storage data updates and trigger debounced Google Drive backup
+  useEffect(() => {
+    const unsubscribe = storageService.onDataChanged((type) => {
+      if (type === 'SESSION_LOGOUT') {
+        setCurrentUser(null);
+        return;
+      }
+      reloadData();
+      if (type !== 'IMPORT_BACKUP' && currentUser) {
+        googleDriveBackupService.scheduleAutoBackup(currentUser);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [currentUser, reloadData]);
 
   // Handle active ordinance period switch
   const handleOrdinanceChange = (ordId: string) => {
@@ -64,6 +96,18 @@ export default function App() {
   const handleUserChange = (user: User) => {
     setCurrentUser(user);
     storageService.setCurrentUser(user);
+  };
+
+  // Handle user logout
+  const handleLogout = () => {
+    storageService.logout(currentUser || undefined);
+    setCurrentUser(null);
+  };
+
+  // Handle login success
+  const handleLoginSuccess = (user: User) => {
+    setCurrentUser(user);
+    reloadData();
   };
 
   // Handle operation launch save
@@ -176,6 +220,11 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  // If no user is logged in, show mandatory login authentication screen
+  if (!currentUser) {
+    return <LoginView onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="min-h-screen bg-[#F0F2F5] text-slate-900 flex flex-col font-sans antialiased">
       {/* Top Header & Navigation Banner */}
@@ -196,6 +245,8 @@ export default function App() {
         onOrdinanceChange={handleOrdinanceChange}
         onExportCsv={handleExportCsv}
         onOpenCreateOrdinance={() => setIsCreateOrdinanceOpen(true)}
+        onOpenBackupModal={() => setIsBackupModalOpen(true)}
+        onLogout={handleLogout}
       />
 
       {/* Main Content Area */}
@@ -293,9 +344,18 @@ export default function App() {
         {activeTab === 'AUDITORIA' && (
           <AuditView
             logs={auditLogs}
+            users={users}
             ordinance={activeOrdinance}
             commands={commands}
             currentUser={currentUser}
+          />
+        )}
+
+        {activeTab === 'TESTE_BD' && (
+          <DatabaseConnectionTestView
+            currentUser={currentUser}
+            activeOrdinance={activeOrdinance}
+            onDataRefreshed={reloadData}
           />
         )}
       </main>
@@ -307,6 +367,14 @@ export default function App() {
         onSave={handleSavePeriod}
         existingOrdinances={ordinances}
         currentUser={currentUser}
+      />
+
+      {/* Modal for Google Drive Backup & Restoration */}
+      <BackupManagerModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+        currentUser={currentUser}
+        onDataRestored={reloadData}
       />
 
       {/* Subtle Footer */}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   PlusCircle,
@@ -18,9 +18,15 @@ import {
   RotateCcw,
   CheckCircle2,
   BookOpen,
+  Cloud,
+  CloudUpload,
+  HardDrive,
 } from 'lucide-react';
-import { User, OrdinancePeriod } from '../types';
+import { User, OrdinancePeriod, DriveSyncStatus } from '../types';
 import { CommandBadge } from './common/CommandBadge';
+import { googleDriveBackupService } from '../services/googleDriveBackupService';
+import { supabaseService, SupabaseSyncStatus } from '../services/supabaseService';
+import { Database } from 'lucide-react';
 
 interface HeaderNavProps {
   activeTab: string;
@@ -33,6 +39,8 @@ interface HeaderNavProps {
   onOrdinanceChange: (ordId: string) => void;
   onOpenCreateOrdinance?: () => void;
   onExportCsv?: () => void;
+  onOpenBackupModal?: () => void;
+  onLogout?: () => void;
 }
 
 export function HeaderNav({
@@ -46,19 +54,43 @@ export function HeaderNav({
   onOrdinanceChange,
   onOpenCreateOrdinance,
   onExportCsv,
+  onOpenBackupModal,
+  onLogout,
 }: HeaderNavProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [driveStatus, setDriveStatus] = useState<DriveSyncStatus>(googleDriveBackupService.getStatus());
+  const [supabaseStatus, setSupabaseStatus] = useState<SupabaseSyncStatus>(supabaseService.getStatus());
+  const [lastBackupTime, setLastBackupTime] = useState<string | null>(
+    googleDriveBackupService.getLastBackupTime()
+  );
+
+  useEffect(() => {
+    const unsubDrive = googleDriveBackupService.onStatusChange((status, time) => {
+      setDriveStatus(status);
+      setLastBackupTime(time);
+    });
+    const unsubSupa = supabaseService.onStatusChange((status) => {
+      setSupabaseStatus(status);
+    });
+    return () => {
+      unsubDrive();
+      unsubSupa();
+    };
+  }, []);
 
   const tabs = [
-    { id: 'PAINEL', label: 'Painel', icon: LayoutDashboard },
-    { id: 'LANCAR_JOE', label: 'Lançar JOE', icon: PlusCircle },
-    { id: 'LANCAMENTOS', label: 'Lançamentos', icon: ClipboardList },
-    { id: 'RELATORIOS', label: 'Relatórios Excel', icon: FileSpreadsheet },
-    { id: 'LEGISLACAO', label: 'Portaria & Resumo', icon: BookOpen },
-    { id: 'TETOS', label: 'Tetos', icon: SlidersHorizontal },
-    { id: 'PERIODOS', label: 'Portarias & Períodos', icon: CalendarDays },
-    { id: 'USUARIOS', label: 'Usuários', icon: Users },
-    { id: 'AUDITORIA', label: 'Auditoria', icon: ShieldCheck },
+    { id: 'PAINEL', label: 'Painel', icon: LayoutDashboard, category: 'OP' },
+    { id: 'LANCAR_JOE', label: 'Lançar JOE', icon: PlusCircle, isAction: true, category: 'OP' },
+    { id: 'LANCAMENTOS', label: 'Lançamentos', icon: ClipboardList, category: 'OP' },
+    { id: 'RELATORIOS', label: 'Relatórios', icon: FileSpreadsheet, category: 'OP' },
+    { id: 'TETOS', label: 'Tetos', icon: SlidersHorizontal, category: 'GEST' },
+    { id: 'PERIODOS', label: 'Portarias', icon: CalendarDays, category: 'GEST' },
+    { id: 'LEGISLACAO', label: 'Legislação', icon: BookOpen, category: 'GEST' },
+    { id: 'USUARIOS', label: 'Usuários', icon: Users, category: 'ADM' },
+    { id: 'AUDITORIA', label: 'Auditoria', icon: ShieldCheck, category: 'ADM' },
+    ...(currentUser.role === 'ADMIN'
+      ? [{ id: 'TESTE_BD', label: 'Status BD', icon: Database, isSuperUser: true, category: 'ADM' }]
+      : []),
   ];
 
   const inEffectOrdinance = ordinances.find((o) => o.status === 'VIGENTE') || ordinances[0];
@@ -178,6 +210,12 @@ export function HeaderNav({
           subtitle: 'Conferência estrita dos 6 documentos (Ofício, Ordem, Escala, RENE, Relatório e Planilha), cálculo de 6h e validação financeira',
           actions: null,
         };
+      case 'TESTE_BD':
+        return {
+          title: 'Teste de Conexão & Diagnóstico do Banco de Dados',
+          subtitle: 'Monitoramento em tempo real de latência, integridade de schema PostgreSQL e permissões (Exclusivo Super Usuário)',
+          actions: null,
+        };
       default:
         return {
           title: 'Painel do CPI',
@@ -213,8 +251,96 @@ export function HeaderNav({
             </div>
           </div>
 
-          {/* Right Header Area: Portaria Selector & User Details */}
-          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+          {/* Right Header Area: Supabase DB, Backup / Google Drive & Portaria Selector & User Details */}
+          <div className="flex flex-wrap items-center gap-2.5 sm:gap-3.5">
+            {/* Supabase DB Status Badge */}
+            <button
+              onClick={() => {
+                if (currentUser.role === 'ADMIN') {
+                  onTabChange('TESTE_BD');
+                }
+              }}
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs border ${
+                currentUser.role === 'ADMIN' ? 'cursor-pointer hover:scale-102 active:scale-98' : 'cursor-default'
+              } ${
+                supabaseStatus === 'SYNCING'
+                  ? 'bg-amber-950/70 text-amber-300 border-amber-500/50 animate-pulse'
+                  : supabaseStatus === 'CONNECTED'
+                  ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40 hover:bg-emerald-900/80'
+                  : supabaseStatus === 'ERROR'
+                  ? 'bg-rose-950/60 text-rose-300 border-rose-500/40 hover:bg-rose-900/80'
+                  : 'bg-[#001F3F] text-sky-200 border-[#7EC2E8]/40'
+              }`}
+              title={
+                currentUser.role === 'ADMIN'
+                  ? 'Clique para abrir o Painel de Teste de Conexão com o Banco de Dados (Super Usuário)'
+                  : 'Supabase PostgreSQL Cloud DB (aflnzikfjeadlvpyoear.supabase.co)'
+              }
+            >
+              <Database className={`w-3.5 h-3.5 ${
+                supabaseStatus === 'SYNCING'
+                  ? 'text-amber-400 animate-spin'
+                  : supabaseStatus === 'CONNECTED'
+                  ? 'text-emerald-400'
+                  : 'text-sky-300'
+              }`} />
+              <span className="hidden xl:inline">
+                {supabaseStatus === 'SYNCING'
+                  ? 'Supabase Sincronizando...'
+                  : supabaseStatus === 'CONNECTED'
+                  ? 'Supabase Conectado'
+                  : 'Supabase Inativo'}
+              </span>
+              <span className="xl:hidden">Supabase</span>
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  supabaseStatus === 'SYNCING'
+                    ? 'bg-amber-400 animate-ping'
+                    : supabaseStatus === 'CONNECTED'
+                    ? 'bg-emerald-400 ring-2 ring-emerald-950'
+                    : 'bg-slate-400'
+                }`}
+              ></span>
+            </button>
+
+            {/* Backup & Google Drive Sync Button */}
+            <button
+              onClick={onOpenBackupModal}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs border ${
+                driveStatus === 'SYNCING'
+                  ? 'bg-amber-900/60 text-amber-200 border-amber-500/50 animate-pulse'
+                  : driveStatus === 'SUCCESS' || googleDriveBackupService.isConnected()
+                  ? 'bg-[#001F3F] hover:bg-[#001730] text-emerald-300 hover:text-white border-emerald-500/40'
+                  : 'bg-[#001F3F] hover:bg-[#001730] text-sky-200 hover:text-white border-[#7EC2E8]/40'
+              }`}
+              title={`Central de Backup & Google Drive (${googleDriveBackupService.getTargetEmail()})`}
+            >
+              <Cloud className={`w-4 h-4 ${
+                driveStatus === 'SYNCING'
+                  ? 'text-amber-400 animate-spin'
+                  : driveStatus === 'SUCCESS' || googleDriveBackupService.isConnected()
+                  ? 'text-emerald-400'
+                  : 'text-[#7EC2E8]'
+              }`} />
+              <span className="hidden sm:inline">
+                {driveStatus === 'SYNCING'
+                  ? 'Salvando no Drive...'
+                  : driveStatus === 'SUCCESS' || googleDriveBackupService.isConnected()
+                  ? 'Drive Sincronizado'
+                  : 'Backup Google Drive'}
+              </span>
+              <span className="sm:hidden">Backup</span>
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  driveStatus === 'SYNCING'
+                    ? 'bg-amber-400 animate-ping'
+                    : driveStatus === 'SUCCESS' || googleDriveBackupService.isConnected()
+                    ? 'bg-emerald-400 ring-2 ring-emerald-950'
+                    : 'bg-sky-400'
+                }`}
+              ></span>
+            </button>
+
             {/* New Ordinance Button */}
             <button
               onClick={onOpenCreateOrdinance}
@@ -298,32 +424,62 @@ export function HeaderNav({
                       </button>
                     ))}
                   </div>
+
+                  {onLogout && (
+                    <div className="p-2 border-t border-slate-100 bg-slate-50">
+                      <button
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          onLogout();
+                        }}
+                        className="w-full py-2 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition-all flex items-center justify-center gap-2 border border-rose-200 cursor-pointer"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>Sair do Sistema / Desconectar</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
+
+            {/* Quick Logout Header Button */}
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="p-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 hover:text-white border border-rose-700/40 transition-all cursor-pointer shadow-xs"
+                title="Encerrar Sessão e Sair"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Navigation Tabs Pill Row with Icons and Bigger Font */}
-        <nav className="flex items-center gap-2 mt-4.5 overflow-x-auto no-scrollbar py-1">
-          {tabs.map((tab) => {
-            const isActive = activeTab === tab.id;
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => onTabChange(tab.id)}
-                className={`px-4.5 py-2.5 text-sm font-bold rounded-xl transition-all duration-150 whitespace-nowrap flex items-center gap-2.5 cursor-pointer select-none ${
-                  isActive
-                    ? 'bg-[#7EC2E8] text-[#002D5A] shadow-md shadow-[#7EC2E8]/20 scale-100'
-                    : 'text-sky-100 hover:text-white hover:bg-white/10'
-                }`}
-              >
-                <Icon className={`w-4.5 h-4.5 ${isActive ? 'text-[#002D5A]' : 'text-[#7EC2E8]'}`} />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
+        {/* Navigation Tabs Bar - Distributed cleanly without overflow scrollbars */}
+        <nav className="flex items-center justify-between gap-1 sm:gap-1.5 lg:gap-2 mt-3.5 overflow-x-auto no-scrollbar scrollbar-none py-1 w-full">
+          <div className="flex items-center gap-1 sm:gap-1.5 lg:gap-2 flex-wrap sm:flex-nowrap w-full justify-between">
+            {tabs.map((tab) => {
+              const isActive = activeTab === tab.id;
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => onTabChange(tab.id)}
+                  className={`px-2.5 sm:px-3 lg:px-3.5 py-1.5 sm:py-2 text-xs sm:text-[13px] font-bold rounded-xl transition-all duration-150 whitespace-nowrap flex items-center gap-1.5 cursor-pointer select-none shrink-0 ${
+                    isActive
+                      ? 'bg-[#7EC2E8] text-[#002D5A] shadow-md shadow-[#7EC2E8]/20 ring-1 ring-white/30'
+                      : tab.isAction
+                      ? 'bg-[#001F3F] text-sky-200 hover:text-white hover:bg-sky-900/60 border border-[#7EC2E8]/40'
+                      : 'text-sky-100 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#002D5A]' : tab.isAction ? 'text-[#7EC2E8]' : 'text-[#7EC2E8]'}`} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </nav>
       </div>
 

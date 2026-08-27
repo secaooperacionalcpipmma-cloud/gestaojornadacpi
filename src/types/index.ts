@@ -194,11 +194,55 @@ export interface AuditLog {
   timestamp: string; // e.g. '24/08/2026 14:58' or ISO
   userName: string; // 'admin' | 'Cb Osaias'
   userRole?: string;
-  action: 'login' | 'logout' | 'criar' | 'editar' | 'excluir' | 'salvar_tetos' | 'CRIACAO' | 'EDICAO' | 'EXCLUSAO' | 'APROVACAO' | 'REJEICAO' | 'DEVOLUCAO' | 'AJUSTE_COTA' | 'CONSOLIDACAO' | 'ENCAMINHAMENTO_PAGADORIA' | 'REGISTRO_IRREGULARIDADE' | 'AUDITORIA_MULTI_UNIDADES';
-  module?: 'OPERACOES' | 'ORCAMENTO' | 'PORTARIAS' | 'CONSOLIDACAO' | 'EFETIVO' | 'IRREGULARIDADES' | 'SISTEMA';
+  action: 'login' | 'logout' | 'criar' | 'editar' | 'excluir' | 'salvar_tetos' | 'CRIACAO' | 'EDICAO' | 'EXCLUSAO' | 'APROVACAO' | 'REJEICAO' | 'DEVOLUCAO' | 'AJUSTE_COTA' | 'CONSOLIDACAO' | 'ENCAMINHAMENTO_PAGADORIA' | 'REGISTRO_IRREGULARIDADE' | 'AUDITORIA_MULTI_UNIDADES' | 'BACKUP_CRIADO' | 'BACKUP_RESTAURADO';
+  module?: 'OPERACOES' | 'ORCAMENTO' | 'PORTARIAS' | 'CONSOLIDACAO' | 'EFETIVO' | 'IRREGULARIDADES' | 'SISTEMA' | 'BACKUP';
   recordId: string; // e.g. 'usuarios #1' | 'lancamentos #2'
   previousValue?: string;
   newValue?: string;
   description: string; // e.g. 'cpi.admin' | '454545454545 · 26 JOEs · R$ 9.100,00'
   ipAddress?: string; // '45.190.120.91' | '2804:...'
 }
+
+export interface SystemBackupPayload {
+  version: string;
+  systemName: string;
+  targetAccountEmail: string;
+  createdAt: string;
+  generatedBy: string;
+  summary: {
+    usersCount: number;
+    ordinancesCount: number;
+    operationsCount: number;
+    budgetsCount: number;
+    commandsCount: number;
+    officersCount: number;
+    batchesCount: number;
+    irregularitiesCount: number;
+    auditLogsCount: number;
+  };
+  data: {
+    users: User[];
+    ordinances: OrdinancePeriod[];
+    activeOrdinanceId: string;
+    budgets: CommandBudget[];
+    commands: CommandUnit[];
+    operations: OperationLaunch[];
+    officers: PoliceOfficer[];
+    batches: WeeklyBatchConsolidation[];
+    irregularities: Irregularity[];
+    auditLogs: AuditLog[];
+  };
+}
+
+export interface DriveBackupFileMeta {
+  id: string;
+  name: string;
+  size?: string;
+  createdTime: string;
+  modifiedTime?: string;
+  description?: string;
+  summary?: SystemBackupPayload['summary'];
+}
+
+export type DriveSyncStatus = 'IDLE' | 'SYNCING' | 'SUCCESS' | 'ERROR' | 'UNAUTHENTICATED' | 'SAVED_LOCAL';
+

@@ -17,6 +17,21 @@ import { CommandUnit, CommandBudget, OperationLaunch, OrdinancePeriod } from '..
 import { formatCurrencyBRL, formatInteger } from '../../utils/formatters';
 import { CommandBadge } from '../common/CommandBadge';
 
+export const getCommandOrderIndex = (codeOrId: string = '') => {
+  const norm = String(codeOrId || '').toUpperCase().trim();
+  if (norm === 'CPI' || norm.startsWith('CPI') || norm.includes('DIREÇÃO') || norm.includes('DIRECAO') || norm.includes('SETORIAL')) return 0;
+  if (norm.includes('CPA/I-1') || norm.includes('CPAI-1') || norm === 'CPA-1' || norm.includes('CPA/I 1')) return 1;
+  if (norm.includes('CPA/I-2') || norm.includes('CPAI-2') || norm === 'CPA-2' || norm.includes('CPA/I 2')) return 2;
+  if (norm.includes('CPA/I-3') || norm.includes('CPAI-3') || norm === 'CPA-3' || norm.includes('CPA/I 3')) return 3;
+  if (norm.includes('CPA/I-4') || norm.includes('CPAI-4') || norm === 'CPA-4' || norm.includes('CPA/I 4')) return 4;
+  if (norm.includes('CPA/I-5') || norm.includes('CPAI-5') || norm === 'CPA-5' || norm.includes('CPA/I 5')) return 5;
+  if (norm.includes('CPA/I-6') || norm.includes('CPAI-6') || norm === 'CPA-6' || norm.includes('CPA/I 6')) return 6;
+  if (norm.includes('CPA/I-7') || norm.includes('CPAI-7') || norm === 'CPA-7' || norm.includes('CPA/I 7')) return 7;
+  if (norm.includes('CPA/I-8') || norm.includes('CPAI-8') || norm === 'CPA-8' || norm.includes('CPA/I 8')) return 8;
+  if (norm.includes('CPA/I-9') || norm.includes('CPAI-9') || norm === 'CPA-9' || norm.includes('CPA/I 9')) return 9;
+  return 99;
+};
+
 interface UnitSpendingChartProps {
   commands: CommandUnit[];
   budgets: CommandBudget[];
@@ -32,7 +47,7 @@ export function UnitSpendingChart({
 }: UnitSpendingChartProps) {
   const [viewMode, setViewMode] = useState<'CPA' | 'SUBUNITS'>('CPA');
   const [selectedCpaFilter, setSelectedCpaFilter] = useState<string>('ALL');
-  const [sortBy, setSortBy] = useState<'PERCENT_DESC' | 'PERCENT_ASC' | 'ORDER'>('PERCENT_DESC');
+  const [sortBy, setSortBy] = useState<'ORDER' | 'PERCENT_DESC' | 'PERCENT_ASC'>('ORDER');
 
   // Filter operations for current ordinance
   const currentOps = useMemo(
@@ -53,7 +68,7 @@ export function UnitSpendingChart({
   const cpaData = useMemo(() => {
     const unitValue = ordinance.unitValueJoe || 350;
 
-    const list = commands.map((cmd, idx) => {
+    const list = commands.map((cmd) => {
       const bgt = budgets.find((b) => b.commandId === cmd.code || b.commandId === cmd.id);
       const cmdOps = currentOps.filter(
         (o) => o.commandId === cmd.code || o.commandId === cmd.name || o.commandId?.includes(cmd.id)
@@ -68,9 +83,13 @@ export function UnitSpendingChart({
       const percentSpent = plannedBudget > 0 ? (executedAmount / plannedBudget) * 100 : 0;
       const balance = Math.max(0, plannedBudget - executedAmount);
 
+      const isCpi = cmd.id === 'CPI' || cmd.code.startsWith('CPI');
+      const displayLabel = isCpi ? 'CPI' : cmd.code;
+
       return {
         id: cmd.id,
-        code: cmd.code,
+        code: displayLabel,
+        rawCode: cmd.code,
         name: cmd.name,
         headquarters: cmd.headquarters,
         subunitsCount: cmd.subunits?.length || 0,
@@ -86,11 +105,13 @@ export function UnitSpendingChart({
     // Filter
     let filtered = list;
     if (selectedCpaFilter !== 'ALL') {
-      filtered = filtered.filter((c) => c.code === selectedCpaFilter);
+      filtered = filtered.filter((c) => c.rawCode === selectedCpaFilter || c.code === selectedCpaFilter || c.id === selectedCpaFilter);
     }
 
     // Sort
-    if (sortBy === 'PERCENT_DESC') {
+    if (sortBy === 'ORDER') {
+      filtered.sort((a, b) => getCommandOrderIndex(a.rawCode || a.id) - getCommandOrderIndex(b.rawCode || b.id));
+    } else if (sortBy === 'PERCENT_DESC') {
       filtered.sort((a, b) => b.percentSpent - a.percentSpent);
     } else if (sortBy === 'PERCENT_ASC') {
       filtered.sort((a, b) => a.percentSpent - b.percentSpent);
@@ -161,7 +182,13 @@ export function UnitSpendingChart({
     }
 
     // Sort
-    if (sortBy === 'PERCENT_DESC') {
+    if (sortBy === 'ORDER') {
+      filtered.sort((a, b) => {
+        const cpaDiff = getCommandOrderIndex(a.cpaCode) - getCommandOrderIndex(b.cpaCode);
+        if (cpaDiff !== 0) return cpaDiff;
+        return a.code.localeCompare(b.code, undefined, { numeric: true });
+      });
+    } else if (sortBy === 'PERCENT_DESC') {
       filtered.sort((a, b) => b.percentSpent - a.percentSpent);
     } else if (sortBy === 'PERCENT_ASC') {
       filtered.sort((a, b) => a.percentSpent - b.percentSpent);
@@ -253,12 +280,15 @@ export function UnitSpendingChart({
               onChange={(e) => setSelectedCpaFilter(e.target.value)}
               className="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-slate-800 font-semibold focus:outline-hidden focus:ring-2 focus:ring-[#7EC2E8]"
             >
-              <option value="ALL">Todos os Comandos (CPA/I-1 a CPA/I-9)</option>
-              {commands.map((c) => (
-                <option key={c.id} value={c.code}>
-                  {c.code}
-                </option>
-              ))}
+              <option value="ALL">Todos os Comandos (CPI, CPA/I-1 a CPA/I-9)</option>
+              {commands.map((c) => {
+                const isCpi = c.id === 'CPI' || c.code.startsWith('CPI');
+                return (
+                  <option key={c.id} value={c.code}>
+                    {isCpi ? 'CPI' : c.code}
+                  </option>
+                );
+              })}
             </select>
           </div>
 
@@ -270,9 +300,9 @@ export function UnitSpendingChart({
               onChange={(e) => setSortBy(e.target.value as any)}
               className="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-slate-800 font-semibold focus:outline-hidden focus:ring-2 focus:ring-[#7EC2E8]"
             >
+              <option value="ORDER">Ordem Padrão (CPI, CPA/I-1 a CPA/I-9)</option>
               <option value="PERCENT_DESC">Maior % de Gasto primeiro</option>
               <option value="PERCENT_ASC">Menor % de Gasto primeiro</option>
-              <option value="ORDER">Ordem Padrão (CPA/I-1 ... CPA/I-9)</option>
             </select>
           </div>
         </div>
@@ -306,10 +336,10 @@ export function UnitSpendingChart({
         {/* Rows of items */}
         <div className="space-y-6 sm:space-y-7 relative z-10">
           {activeData.map((item, index) => {
-            // Is top item (index 0)
-            const isTop = index === 0 && sortBy === 'PERCENT_DESC';
+            const maxPercentInList = Math.max(...activeData.map((d) => d.percentSpent), 0);
+            // Is top item (green highlight for highest spender > 0%)
+            const isTop = (sortBy === 'PERCENT_DESC' && index === 0) || (item.percentSpent > 0 && item.percentSpent === maxPercentInList);
             const isOverBudget = item.percentSpent >= 100;
-            const IconComponent = item.icon;
 
             // Bar color logic: Top item gets bright green (#00C05B) just like the screenshot, others get deep navy blue (#18234D)
             const barBgColor = isOverBudget

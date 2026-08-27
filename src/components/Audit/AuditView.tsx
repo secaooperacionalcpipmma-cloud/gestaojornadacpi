@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
-import { ShieldCheck, History, FileCheck, Activity, Search, Filter } from 'lucide-react';
+import { ShieldCheck, History, FileCheck, Activity, Search, Filter, UserCheck, Users } from 'lucide-react';
 import { AuditLog, OrdinancePeriod, CommandUnit, User } from '../../types';
 import { DocumentAuditView } from './DocumentAuditView';
+import { UserActivityAudit } from './UserActivityAudit';
+import { INITIAL_USERS } from '../../data/initialData';
 
 interface AuditViewProps {
   logs: AuditLog[];
+  users?: User[];
   ordinance?: OrdinancePeriod;
   commands?: CommandUnit[];
   currentUser?: User;
 }
 
-export function AuditView({ logs, ordinance, commands = [], currentUser }: AuditViewProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'DOCUMENT_AUDIT' | 'LOGS_TRAIL'>('DOCUMENT_AUDIT');
+export function AuditView({ logs, users = INITIAL_USERS, ordinance, commands = [], currentUser }: AuditViewProps) {
+  const [activeSubTab, setActiveSubTab] = useState<'USER_AUDIT' | 'DOCUMENT_AUDIT' | 'LOGS_TRAIL'>('USER_AUDIT');
   const [searchTerm, setSearchTerm] = useState('');
   const [actionFilter, setActionFilter] = useState('ALL');
 
@@ -111,8 +114,20 @@ export function AuditView({ logs, ordinance, commands = [], currentUser }: Audit
   return (
     <div className="space-y-6">
       {/* Sub-Tabs Switcher */}
-      <div className="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3 rounded-2xl shadow-2xs">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 bg-white px-5 py-3 rounded-2xl shadow-2xs gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setActiveSubTab('USER_AUDIT')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeSubTab === 'USER_AUDIT'
+                ? 'bg-[#002D5A] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <UserCheck className="w-4 h-4" />
+            <span>Auditoria de Usuários & Acessos</span>
+          </button>
+
           <button
             onClick={() => setActiveSubTab('DOCUMENT_AUDIT')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
@@ -122,7 +137,7 @@ export function AuditView({ logs, ordinance, commands = [], currentUser }: Audit
             }`}
           >
             <FileCheck className="w-4 h-4" />
-            <span>Auditoria & Cruzamento Documental (6 Documentos)</span>
+            <span>Cruzamento Documental SEI</span>
           </button>
 
           <button
@@ -134,17 +149,27 @@ export function AuditView({ logs, ordinance, commands = [], currentUser }: Audit
             }`}
           >
             <History className="w-4 h-4" />
-            <span>Trilha de Auditoria & Logs do Sistema ({logs.length})</span>
+            <span>Trilha Geral de Logs ({logs.length})</span>
           </button>
         </div>
 
         <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500 font-medium">
-          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
           <span>Fiscalização Ativa CPI</span>
         </div>
       </div>
 
-      {/* Sub-Tab 1: Document Audit */}
+      {/* Sub-Tab 1: User Activity Audit */}
+      {activeSubTab === 'USER_AUDIT' && (
+        <UserActivityAudit
+          logs={logs}
+          users={users}
+          commands={commands}
+          currentUser={activeUser}
+        />
+      )}
+
+      {/* Sub-Tab 2: Document Audit */}
       {activeSubTab === 'DOCUMENT_AUDIT' && (
         <DocumentAuditView
           ordinance={activeOrdinance}

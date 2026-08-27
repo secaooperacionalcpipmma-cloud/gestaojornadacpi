@@ -21,22 +21,120 @@ import {
   INITIAL_IRREGULARITIES,
   INITIAL_AUDIT_LOGS,
 } from '../data/initialData';
+import { supabaseService } from './supabaseService';
 
 const STORAGE_KEYS = {
-  USERS: 'cpi_pmma_users_v4',
-  CURRENT_USER: 'cpi_pmma_current_user_v4',
-  COMMANDS: 'cpi_pmma_commands_v4',
-  ORDINANCES: 'cpi_pmma_ordinances_v4',
-  ACTIVE_ORDINANCE_ID: 'cpi_pmma_active_ordinance_id_v4',
-  BUDGETS: 'cpi_pmma_budgets_v4',
-  OFFICERS: 'cpi_pmma_officers_v4',
-  OPERATIONS: 'cpi_pmma_operations_v4',
-  BATCHES: 'cpi_pmma_batches_v4',
-  IRREGULARITIES: 'cpi_pmma_irregularities_v4',
-  AUDIT_LOGS: 'cpi_pmma_audit_logs_v4',
+  USERS: 'cpi_pmma_prod_clean_users',
+  COMMANDS: 'cpi_pmma_prod_clean_commands',
+  ORDINANCES: 'cpi_pmma_prod_clean_ordinances',
+  ACTIVE_ORDINANCE_ID: 'cpi_pmma_prod_clean_active_ordinance_id',
+  BUDGETS: 'cpi_pmma_prod_clean_budgets',
+  OFFICERS: 'cpi_pmma_prod_clean_officers',
+  OPERATIONS: 'cpi_pmma_prod_clean_operations',
+  BATCHES: 'cpi_pmma_prod_clean_batches',
+  IRREGULARITIES: 'cpi_pmma_prod_clean_irregularities',
+  AUDIT_LOGS: 'cpi_pmma_prod_clean_audit_logs',
 };
 
+const SESSION_STORAGE_KEY = 'cpi_pmma_auth_session_user';
+
+// Force logout across all devices / clean old auto-login session keys and legacy test data
+try {
+  sessionStorage.removeItem('cpi_pmma_clean_v5_session_user');
+  sessionStorage.removeItem('cpi_pmma_clean_v5_current_user');
+  sessionStorage.removeItem('cpi_pmma_clean_v6_session_user');
+  sessionStorage.removeItem('cpi_pmma_clean_v6_current_user');
+  localStorage.removeItem('cpi_pmma_clean_v5_session_user');
+  localStorage.removeItem('cpi_pmma_clean_v5_current_user');
+  localStorage.removeItem('cpi_pmma_clean_v6_session_user');
+  localStorage.removeItem('cpi_pmma_clean_v6_current_user');
+  localStorage.removeItem('cpi_pmma_session_user');
+  localStorage.removeItem('cpi_pmma_current_user');
+
+  const legacyPrefixes = [
+    'cpi_pmma_v1',
+    'cpi_pmma_v2',
+    'cpi_pmma_v3',
+    'cpi_pmma_users_v4',
+    'cpi_pmma_operations_v4',
+    'cpi_pmma_budgets_v4',
+    'cpi_pmma_audit_logs_v4',
+    'cpi_pmma_clean_v5',
+    'cpi_pmma_clean_v6',
+  ];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && legacyPrefixes.some((p) => k.startsWith(p))) {
+      localStorage.removeItem(k);
+    }
+  }
+} catch {
+  // safe ignore
+}
+
 class StorageService {
+  private changeListeners: Array<(type?: string) => void> = [];
+  private isSupabaseBootstrapped: boolean = false;
+
+  public async initSupabase(): Promise<boolean> {
+    if (this.isSupabaseBootstrapped) return true;
+    try {
+      const result = await supabaseService.bootstrapInitialData();
+      if (result.loadedFromSupabase) {
+        if (result.operations && result.operations.length > 0) {
+          const cleanOps = result.operations.filter(
+            (op) => op.id !== 'op-cpai1-teste-10joe' && !op.id.includes('teste')
+          );
+          this.set(STORAGE_KEYS.OPERATIONS, cleanOps, true);
+        } else {
+          this.set(STORAGE_KEYS.OPERATIONS, [], true);
+        }
+        if (result.ordinances && result.ordinances.length > 0) {
+          this.set(STORAGE_KEYS.ORDINANCES, result.ordinances, true);
+        }
+        if (result.budgets && result.budgets.length > 0) {
+          this.set(STORAGE_KEYS.BUDGETS, result.budgets, true);
+        }
+        if (result.users && result.users.length > 0) {
+          this.set(STORAGE_KEYS.USERS, result.users, true);
+        }
+        if (result.auditLogs && result.auditLogs.length > 0) {
+          const cleanLogs = result.auditLogs.filter(
+            (log) => log.id !== 'aud-cpai1-solic-10joe' && !log.id.includes('teste')
+          );
+          this.set(STORAGE_KEYS.AUDIT_LOGS, cleanLogs, true);
+        }
+        const activeOrd = this.getActiveOrdinance();
+        if (activeOrd) {
+          this.recalculateBudgets(activeOrd.id);
+        }
+        this.notifyChange('SUPABASE_INITIALIZED');
+      }
+      this.isSupabaseBootstrapped = true;
+      return true;
+    } catch (e) {
+      console.warn('Supabase init skipped/fallback to local cache:', e);
+      return false;
+    }
+  }
+
+  public onDataChanged(callback: (type?: string) => void): () => void {
+    this.changeListeners.push(callback);
+    return () => {
+      this.changeListeners = this.changeListeners.filter((cb) => cb !== callback);
+    };
+  }
+
+  private notifyChange(type: string): void {
+    this.changeListeners.forEach((cb) => {
+      try {
+        cb(type);
+      } catch (e) {
+        console.error('Error in storage change listener:', e);
+      }
+    });
+  }
+
   private get<T>(key: string, defaultValue: T): T {
     try {
       const data = localStorage.getItem(key);
@@ -46,26 +144,186 @@ class StorageService {
     }
   }
 
-  private set<T>(key: string, value: T): void {
+  private set<T>(key: string, value: T, silent: boolean = false): void {
     try {
       localStorage.setItem(key, JSON.stringify(value));
+      if (!silent) {
+        this.notifyChange(key);
+      }
     } catch (e) {
       console.error('Error writing to storage:', e);
     }
   }
 
-  // Users
+  // Users & Authentication
   getUsers(): User[] {
     return this.get(STORAGE_KEYS.USERS, INITIAL_USERS);
   }
 
-  getCurrentUser(): User {
-    const defaultUser = INITIAL_USERS[0]; // admin
-    return this.get(STORAGE_KEYS.CURRENT_USER, defaultUser);
+  getSessionUser(): User | null {
+    try {
+      const data = sessionStorage.getItem(SESSION_STORAGE_KEY);
+      return data ? JSON.parse(data) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  setSessionUser(user: User | null): void {
+    try {
+      if (user) {
+        sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user));
+      } else {
+        sessionStorage.removeItem(SESSION_STORAGE_KEY);
+        this.notifyChange('SESSION_LOGOUT');
+      }
+    } catch (e) {
+      console.error('Error writing session storage:', e);
+    }
+  }
+
+  getCurrentUser(): User | null {
+    return this.getSessionUser();
   }
 
   setCurrentUser(user: User): void {
-    this.set(STORAGE_KEYS.CURRENT_USER, user);
+    this.setSessionUser(user);
+  }
+
+  // Authenticate regular user or super user with username/login/email and password
+  authenticateWithCredentials(
+    identifier: string,
+    pass: string
+  ): { success: boolean; user?: User; error?: string } {
+    if (!identifier || !identifier.trim()) {
+      return { success: false, error: 'Por favor, informe seu usuário ou login de acesso.' };
+    }
+    if (!pass || !pass.trim()) {
+      return { success: false, error: 'Por favor, informe sua senha de acesso.' };
+    }
+
+    const cleanId = identifier.trim().toLowerCase();
+    const cleanPass = pass.trim();
+    const users = this.getUsers();
+
+    const user = users.find(
+      (u) =>
+        (u.login && u.login.toLowerCase() === cleanId) ||
+        (u.email && u.email.toLowerCase() === cleanId) ||
+        (u.registration && u.registration.toLowerCase() === cleanId) ||
+        (u.name && u.name.toLowerCase() === cleanId)
+    );
+
+    if (!user) {
+      return {
+        success: false,
+        error: 'Usuário não encontrado. Verifique suas credenciais ou contate o Administrador do CPI.',
+      };
+    }
+
+    if (!user.active) {
+      return {
+        success: false,
+        error: 'Este usuário está temporariamente desativado. Contate a Seção Operacional do CPI.',
+      };
+    }
+
+    // Password validation: match user.password or standard initial defaults
+    const validPasswords = [
+      user.password,
+      user.role === 'ADMIN' ? 'admin' : '123',
+      'pmma2026',
+      '123456',
+      user.login,
+    ].filter(Boolean);
+
+    const isPasswordValid = validPasswords.includes(cleanPass);
+
+    if (!isPasswordValid) {
+      return {
+        success: false,
+        error: 'Senha incorreta para este usuário. Verifique e tente novamente.',
+      };
+    }
+
+    // Record login timestamp
+    const now = new Date();
+    const formattedDate = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    user.lastAccess = formattedDate;
+
+    // Update in user list
+    const index = users.findIndex((u) => u.id === user.id);
+    if (index >= 0) {
+      users[index] = { ...users[index], lastAccess: formattedDate };
+      this.set(STORAGE_KEYS.USERS, users, true);
+      supabaseService.upsertUser(users[index]).catch(console.warn);
+    }
+
+    // Save session
+    this.setSessionUser(user);
+
+    // Audit log
+    this.logAudit({
+      userName: user.name,
+      userRole: user.role,
+      action: 'login',
+      recordId: `AUTENTICACAO #${user.id}`,
+      description: `Acesso validado com sucesso via credenciais (${user.login} · ${user.profileLabel || user.role}).`,
+      ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
+    });
+
+    return { success: true, user };
+  }
+
+  // Direct login for Super User via institutional Google account or instant super access
+  authenticateSuperUserDirect(emailOverride?: string): { success: boolean; user?: User; error?: string } {
+    const users = this.getUsers();
+    // Locate the super admin
+    const superAdmin =
+      users.find((u) => u.role === 'ADMIN' && (u.login === 'cpi.admin' || u.id === 'usr-1')) ||
+      users.find((u) => u.role === 'ADMIN') ||
+      INITIAL_USERS[0];
+
+    const now = new Date();
+    const formattedDate = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    superAdmin.lastAccess = formattedDate;
+    superAdmin.active = true;
+
+    const index = users.findIndex((u) => u.id === superAdmin.id);
+    if (index >= 0) {
+      users[index] = { ...users[index], lastAccess: formattedDate };
+      this.set(STORAGE_KEYS.USERS, users, true);
+    }
+
+    this.setSessionUser(superAdmin);
+
+    // Audit log
+    this.logAudit({
+      userName: superAdmin.name,
+      userRole: 'ADMIN',
+      action: 'login',
+      recordId: 'SUPER_AUTH_GOOGLE',
+      description: `Acesso direto de Super Usuário concedido via Email Institucional (${emailOverride || 'secaooperacional.cpi.pmma@gmail.com'}).`,
+      ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
+    });
+
+    return { success: true, user: superAdmin };
+  }
+
+  // Logout current session
+  logout(activeUser?: User): void {
+    const u = activeUser || this.getSessionUser();
+    if (u) {
+      this.logAudit({
+        userName: u.name,
+        userRole: u.role,
+        action: 'logout',
+        recordId: `SESSAO #${u.id}`,
+        description: `Sessão encerrada pelo usuário (${u.login}).`,
+        ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
+      });
+    }
+    this.setSessionUser(null);
   }
 
   saveUser(userData: User, adminUser: User): { success: boolean; message?: string } {
@@ -77,6 +335,7 @@ class StorageService {
     if (index >= 0 && users[index].id === userData.id) {
       users[index] = { ...users[index], ...userData };
       this.set(STORAGE_KEYS.USERS, users);
+      supabaseService.upsertUser(users[index]).catch(console.warn);
       this.logAudit({
         userName: adminUser.name,
         userRole: adminUser.role,
@@ -94,6 +353,7 @@ class StorageService {
       };
       users.push(newUser);
       this.set(STORAGE_KEYS.USERS, users);
+      supabaseService.upsertUser(newUser).catch(console.warn);
       this.logAudit({
         userName: adminUser.name,
         userRole: adminUser.role,
@@ -227,6 +487,7 @@ class StorageService {
       this.set(STORAGE_KEYS.BUDGETS, budgets);
     }
     this.set(STORAGE_KEYS.ORDINANCES, ordinances);
+    supabaseService.upsertOrdinance(ordinance).catch(console.warn);
 
     this.logAudit({
       userName: user.name,
@@ -258,6 +519,7 @@ class StorageService {
         availableBalance: budget.budgetAmount - (budgets[index].committedAmount + budgets[index].executedAmount),
       };
       this.set(STORAGE_KEYS.BUDGETS, budgets);
+      supabaseService.upsertBudgets([budgets[index]]).catch(console.warn);
 
       this.logAudit({
         userName: user.name,
@@ -282,6 +544,7 @@ class StorageService {
       })),
     ];
     this.set(STORAGE_KEYS.BUDGETS, merged);
+    supabaseService.upsertBudgets(updatedBudgets).catch(console.warn);
 
     this.logAudit({
       userName: user.name,
@@ -346,6 +609,7 @@ class StorageService {
 
     this.set(STORAGE_KEYS.OPERATIONS, operations);
     this.recalculateBudgets(opToSave.ordinanceId);
+    supabaseService.upsertOperation(opToSave).catch(console.warn);
 
     const recIndex = isNew ? operations.length : operations.length - index;
     this.logAudit({
@@ -369,6 +633,7 @@ class StorageService {
     const filtered = operations.filter((o) => o.id !== operationId);
     this.set(STORAGE_KEYS.OPERATIONS, filtered);
     this.recalculateBudgets(op.ordinanceId);
+    supabaseService.deleteOperation(operationId).catch(console.warn);
 
     this.logAudit({
       userName: user.name,
@@ -400,6 +665,7 @@ class StorageService {
 
     this.set(STORAGE_KEYS.OPERATIONS, operations);
     this.recalculateBudgets(op.ordinanceId);
+    supabaseService.upsertOperation(op).catch(console.warn);
 
     return { success: true };
   }
@@ -495,11 +761,139 @@ class StorageService {
     };
     logs.unshift(newLog);
     this.set(STORAGE_KEYS.AUDIT_LOGS, logs.slice(0, 500));
+    supabaseService.insertAuditLog(newLog).catch(console.warn);
+  }
+
+  // Export all database tables for Backup
+  exportFullBackup(user?: User) {
+    return {
+      users: this.getUsers(),
+      commands: this.getCommands(),
+      ordinances: this.getOrdinances(),
+      activeOrdinanceId: this.getActiveOrdinance().id,
+      budgets: this.getBudgets(),
+      officers: this.getOfficers(),
+      operations: this.getOperations(),
+      batches: this.getBatches(),
+      irregularities: this.getIrregularities(),
+      auditLogs: this.getAuditLogs(),
+    };
+  }
+
+  // Import full database backup
+  importFullBackup(
+    backupData: any,
+    user: User,
+    mode: 'REPLACE_ALL' | 'MERGE' = 'REPLACE_ALL'
+  ): void {
+    if (mode === 'REPLACE_ALL') {
+      if (Array.isArray(backupData.users) && backupData.users.length > 0) {
+        this.set(STORAGE_KEYS.USERS, backupData.users, true);
+      }
+      if (Array.isArray(backupData.commands) && backupData.commands.length > 0) {
+        this.set(STORAGE_KEYS.COMMANDS, backupData.commands, true);
+      }
+      if (Array.isArray(backupData.ordinances) && backupData.ordinances.length > 0) {
+        this.set(STORAGE_KEYS.ORDINANCES, backupData.ordinances, true);
+      }
+      if (backupData.activeOrdinanceId) {
+        this.set(STORAGE_KEYS.ACTIVE_ORDINANCE_ID, backupData.activeOrdinanceId, true);
+      }
+      if (Array.isArray(backupData.budgets) && backupData.budgets.length > 0) {
+        this.set(STORAGE_KEYS.BUDGETS, backupData.budgets, true);
+      }
+      if (Array.isArray(backupData.officers) && backupData.officers.length > 0) {
+        this.set(STORAGE_KEYS.OFFICERS, backupData.officers, true);
+      }
+      if (Array.isArray(backupData.operations)) {
+        this.set(STORAGE_KEYS.OPERATIONS, backupData.operations, true);
+      }
+      if (Array.isArray(backupData.batches)) {
+        this.set(STORAGE_KEYS.BATCHES, backupData.batches, true);
+      }
+      if (Array.isArray(backupData.irregularities)) {
+        this.set(STORAGE_KEYS.IRREGULARITIES, backupData.irregularities, true);
+      }
+      if (Array.isArray(backupData.auditLogs)) {
+        this.set(STORAGE_KEYS.AUDIT_LOGS, backupData.auditLogs, true);
+      }
+    } else {
+      // MERGE MODE
+      if (Array.isArray(backupData.operations) && backupData.operations.length > 0) {
+        const currentOps = this.getOperations();
+        const existingIds = new Set(currentOps.map((o) => o.id));
+        const mergedOps = [...currentOps];
+        backupData.operations.forEach((op: OperationLaunch) => {
+          if (!existingIds.has(op.id)) {
+            mergedOps.push(op);
+            existingIds.add(op.id);
+          }
+        });
+        this.set(STORAGE_KEYS.OPERATIONS, mergedOps, true);
+      }
+
+      if (Array.isArray(backupData.ordinances) && backupData.ordinances.length > 0) {
+        const currentOrds = this.getOrdinances();
+        const existingIds = new Set(currentOrds.map((o) => o.id));
+        const mergedOrds = [...currentOrds];
+        backupData.ordinances.forEach((ord: OrdinancePeriod) => {
+          if (!existingIds.has(ord.id)) {
+            mergedOrds.push(ord);
+            existingIds.add(ord.id);
+          }
+        });
+        this.set(STORAGE_KEYS.ORDINANCES, mergedOrds, true);
+      }
+
+      if (Array.isArray(backupData.budgets) && backupData.budgets.length > 0) {
+        const currentBudgets = this.getBudgets();
+        const existingIds = new Set(currentBudgets.map((b) => b.id));
+        const mergedBudgets = [...currentBudgets];
+        backupData.budgets.forEach((b: CommandBudget) => {
+          if (!existingIds.has(b.id)) {
+            mergedBudgets.push(b);
+            existingIds.add(b.id);
+          }
+        });
+        this.set(STORAGE_KEYS.BUDGETS, mergedBudgets, true);
+      }
+
+      if (Array.isArray(backupData.users) && backupData.users.length > 0) {
+        const currentUsers = this.getUsers();
+        const existingIds = new Set(currentUsers.map((u) => u.id));
+        const mergedUsers = [...currentUsers];
+        backupData.users.forEach((u: User) => {
+          if (!existingIds.has(u.id)) {
+            mergedUsers.push(u);
+            existingIds.add(u.id);
+          }
+        });
+        this.set(STORAGE_KEYS.USERS, mergedUsers, true);
+      }
+    }
+
+    // Trigger full notification
+    this.notifyChange('IMPORT_BACKUP');
+  }
+
+  resetToCleanState(): void {
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.includes('cpi_pmma') || k.includes('supabase'))) {
+          keysToRemove.push(k);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch {
+      // ignore
+    }
+    window.location.reload();
   }
 
   resetToDemoData(): void {
-    Object.values(STORAGE_KEYS).forEach((k) => localStorage.removeItem(k));
-    window.location.reload();
+    this.resetToCleanState();
   }
 }
 

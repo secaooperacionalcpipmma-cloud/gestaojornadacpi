@@ -1,6 +1,7 @@
 import React from 'react';
 import { Shield, ArrowRight, CheckCircle2, AlertTriangle, AlertOctagon } from 'lucide-react';
 import { CommandBudget, CommandUnit } from '../../types';
+import { getCommandOrderIndex } from './UnitSpendingChart';
 
 interface CpaQuickCardsProps {
   budgets: CommandBudget[];
@@ -13,6 +14,10 @@ export const CpaQuickCards: React.FC<CpaQuickCardsProps> = ({
   commands,
   onSelectCpa,
 }) => {
+  const sortedBudgets = [...budgets].sort(
+    (a, b) => getCommandOrderIndex(a.commandId) - getCommandOrderIndex(b.commandId)
+  );
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -21,7 +26,7 @@ export const CpaQuickCards: React.FC<CpaQuickCardsProps> = ({
             Painel Orçamentário Individual por Comando Subordinado
           </h3>
           <p className="text-[11px] text-slate-500">
-            Acompanhamento de cotas, saldo disponível e limites de CPA/I-1 ao CPA/I-9
+            Acompanhamento de cotas, saldo disponível e limites de CPI e CPA/I-1 ao CPA/I-9
           </p>
         </div>
         <div className="flex items-center space-x-3 text-[10px] font-bold">
@@ -38,7 +43,7 @@ export const CpaQuickCards: React.FC<CpaQuickCardsProps> = ({
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-        {budgets.map((b) => {
+        {sortedBudgets.map((b) => {
           const cmd = commands.find((c) => c.code === b.commandId);
           const totalSpent = b.committedAmount + b.executedAmount;
           const pct = (totalSpent / (b.budgetAmount || 1)) * 100;
