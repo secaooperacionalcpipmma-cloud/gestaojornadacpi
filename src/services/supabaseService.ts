@@ -813,16 +813,29 @@ class SupabaseService {
 
       // 4. Users
       if (payload.users?.length) {
-        const userRows = payload.users.map((u) => ({
-          id: u.id,
-          name: u.name,
-          email: u.email || null,
-          login: u.login || u.name.toLowerCase().replace(/\s+/g, '.'),
-          role: u.role,
-          command_id: u.commandId || 'CPI',
-          active: u.active ?? true,
-          last_login: u.lastAccess || new Date().toISOString(),
-        }));
+        const userRows = payload.users.map((u) => {
+          let validLastLogin: string | null = null;
+          if (u.lastAccess && u.lastAccess !== 'Nunca acessou') {
+            const parsed = new Date(u.lastAccess);
+            if (!isNaN(parsed.getTime())) {
+              validLastLogin = parsed.toISOString();
+            }
+          }
+          return {
+            id: u.id,
+            name: u.name,
+            email: u.email || null,
+            login: (u.login || u.name.toLowerCase().replace(/\s+/g, '.')).trim().toLowerCase(),
+            password: u.password || '123',
+            role: u.role,
+            command_id: u.commandId || 'CPI',
+            active: u.active ?? true,
+            last_login: validLastLogin,
+            rank: u.rank || null,
+            registration: u.registration || null,
+            updated_at: new Date().toISOString(),
+          };
+        });
         await supabase.from('users').upsert(userRows);
       }
 

@@ -38,28 +38,60 @@ export function OperationsListView({
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [ordinanceScope, setOrdinanceScope] = useState<'CURRENT' | 'ALL'>('ALL');
+
+  const normalizeCmd = (code?: string): string => {
+    if (!code) return '';
+    return code
+      .toUpperCase()
+      .replace(/[\/\s\-_.]/g, '')
+      .replace('DIRECAOSETORIAL', '')
+      .replace('DIREÇÃOSETORIAL', '')
+      .replace('COMANDO', '');
+  };
 
   // Active subunits for filter
   const activeCommand = commands.find(
-    (c) => c.code === selectedCpa || c.name === selectedCpa || c.id === selectedCpa
+    (c) =>
+      c.code === selectedCpa ||
+      c.name === selectedCpa ||
+      c.id === selectedCpa ||
+      normalizeCmd(c.code) === normalizeCmd(selectedCpa)
   );
   const availableUnits = activeCommand ? activeCommand.subunits : [];
 
   // Filter logic
   const filteredOperations = operations
-    .filter((op) => op.ordinanceId === ordinance.id)
     .filter((op) => {
-      if (selectedCpa && op.commandId !== selectedCpa) return false;
+      if (ordinanceScope === 'CURRENT') {
+        return (
+          op.ordinanceId === ordinance.id ||
+          op.ordinanceId === 'portaria-vigente' ||
+          !op.ordinanceId
+        );
+      }
+      return true;
+    })
+    .filter((op) => {
+      if (selectedCpa) {
+        const opNorm = normalizeCmd(op.commandId);
+        const selNorm = normalizeCmd(selectedCpa);
+        if (op.commandId !== selectedCpa && opNorm !== selNorm && !opNorm.includes(selNorm) && !selNorm.includes(opNorm)) {
+          return false;
+        }
+      }
       if (selectedUnit && op.subUnit !== selectedUnit) return false;
       if (startDate && op.serviceDate < startDate) return false;
       if (endDate && op.serviceDate > endDate) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchesEvent = op.eventName.toLowerCase().includes(q);
-        const matchesOrder = op.orderNumber.toLowerCase().includes(q);
-        const matchesSei = op.seiProcessNumber.toLowerCase().includes(q);
+        const matchesEvent = op.eventName?.toLowerCase().includes(q) || false;
+        const matchesOrder = op.orderNumber?.toLowerCase().includes(q) || false;
+        const matchesSei = op.seiProcessNumber?.toLowerCase().includes(q) || false;
         const matchesSubunit = op.subUnit?.toLowerCase().includes(q) || false;
-        if (!matchesEvent && !matchesOrder && !matchesSei && !matchesSubunit) return false;
+        const matchesCreator = op.createdBy?.toLowerCase().includes(q) || false;
+        const matchesCmd = op.commandId?.toLowerCase().includes(q) || false;
+        if (!matchesEvent && !matchesOrder && !matchesSei && !matchesSubunit && !matchesCreator && !matchesCmd) return false;
       }
       return true;
     });
@@ -70,6 +102,7 @@ export function OperationsListView({
     setStartDate('');
     setEndDate('');
     setSearchQuery('');
+    setOrdinanceScope('ALL');
   };
 
   // Calculations
@@ -80,9 +113,38 @@ export function OperationsListView({
     <div className="space-y-6">
       {/* Top Filter Card */}
       <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs">
-        <div className="flex items-center gap-2 mb-4 text-xs font-bold text-slate-500 uppercase tracking-wider">
-          <Filter className="w-4 h-4 text-[#002D5A]" />
-          <span>Filtros de Pesquisa e Segmentação</span>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
+            <Filter className="w-4 h-4 text-[#002D5A]" />
+            <span>Filtros de Pesquisa e Segmentação</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-500">Portaria:</span>
+            <div className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50 text-xs">
+              <button
+                type="button"
+                onClick={() => setOrdinanceScope('ALL')}
+                className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${
+                  ordinanceScope === 'ALL'
+                    ? 'bg-[#002D5A] text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Todas ({operations.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setOrdinanceScope('CURRENT')}
+                className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${
+                  ordinanceScope === 'CURRENT'
+                    ? 'bg-[#002D5A] text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {ordinance.number}
+              </button>
+            </div>
+          </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5 items-end">
           {/* CPA/I Filter */}

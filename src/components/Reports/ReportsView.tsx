@@ -78,8 +78,8 @@ export function ReportsView({
     }));
   }, [commands]);
 
-  // Selected commands state (CPI to CPAI-9) - defaults to all 10 selected
-  const [selectedCommandCodes, setSelectedCommandCodes] = useState<string[]>(() =>
+  // Selected commands state (CPI to CPAI-9) - defaults to all 10 selected as array of string codes
+  const [selectedCommands, setSelectedCommands] = useState<string[]>(() =>
     commands.map((c) => c.code)
   );
 
@@ -211,21 +211,32 @@ export function ReportsView({
   // Current chosen ordinance
   const currentOrd = ordinances.find((o) => o.id === selectedOrdinanceId) || activeOrdinance;
 
+  // Normalizer for command codes
+  const normalizeCmd = (code: string): string => {
+    if (!code) return '';
+    return code
+      .toUpperCase()
+      .replace(/[\/\s\-_.]/g, '')
+      .replace('DIRECAOSETORIAL', '')
+      .replace('DIREÇÃOSETORIAL', '')
+      .replace('COMANDO', '');
+  };
+
   // Filter operations based on ordinance, selected commands, and dates (Sorted officially: CPI first, then CPAI-1 to CPAI-9)
   const filteredOperations = useMemo(() => {
     const matched = operations.filter((op) => {
       if (selectedOrdinanceId !== 'ALL' && op.ordinanceId !== selectedOrdinanceId) return false;
 
-      // Filter by selected commands
-      if (selectedCommandCodes.length > 0) {
-        const match = selectedCommandCodes.some((code) => {
-          const formatted = formatCommandDisplay(code);
-          const opFormatted = formatCommandDisplay(op.commandId);
+      // Filter by selected commands array
+      if (selectedCommands.length > 0) {
+        const opNorm = normalizeCmd(op.commandId);
+        const match = selectedCommands.some((code) => {
+          const codeNorm = normalizeCmd(code);
           return (
             op.commandId === code ||
-            opFormatted === formatted ||
-            op.commandId.includes(code) ||
-            code.includes(op.commandId)
+            opNorm === codeNorm ||
+            opNorm.includes(codeNorm) ||
+            codeNorm.includes(opNorm)
           );
         });
         if (!match) return false;
@@ -239,7 +250,7 @@ export function ReportsView({
     });
 
     return sortOperationsOfficial(matched);
-  }, [operations, selectedOrdinanceId, selectedCommandCodes, startDate, endDate]);
+  }, [operations, selectedOrdinanceId, selectedCommands, startDate, endDate]);
 
   // Aggregate totals
   const totalOfficersCount = useMemo(
@@ -296,17 +307,21 @@ export function ReportsView({
     };
   }, [filteredOperations]);
 
-  // Command selection helpers
+  // Command selection helpers for multi-unit selection array
   const handleSelectAllCommands = () => {
-    setSelectedCommandCodes(commands.map((c) => c.code));
+    setSelectedCommands(commands.map((c) => c.code));
   };
 
   const handleClearAllCommands = () => {
-    setSelectedCommandCodes([]);
+    setSelectedCommands([]);
+  };
+
+  const handleSelectExclusiveCommand = (cmdCode: string) => {
+    setSelectedCommands([cmdCode]);
   };
 
   const handleToggleCommand = (cmdCode: string) => {
-    setSelectedCommandCodes((prev) =>
+    setSelectedCommands((prev) =>
       prev.includes(cmdCode) ? prev.filter((c) => c !== cmdCode) : [...prev, cmdCode]
     );
   };
@@ -708,15 +723,56 @@ export function ReportsView({
               <Building2 className="w-5 h-5 text-[#002D5A]" />
               Seleção de Comandos de Área (CPI até CPAI-9)
               <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-sky-50 text-[#002D5A] border border-[#7EC2E8]">
-                {selectedCommandCodes.length} de {commandList.length} comandos selecionados
+                {selectedCommands.length === commandList.length && commandList.length > 0
+                  ? 'Todas as 10 Unidades Selecionadas'
+                  : selectedCommands.length === 1
+                  ? `1 Unidade Selecionada (${selectedCommands[0]})`
+                  : selectedCommands.length === 0
+                  ? 'Nenhuma Unidade Selecionada'
+                  : `${selectedCommands.length} de ${commandList.length} unidades selecionadas`}
               </span>
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Escolha os Grandes Comandos de Área para compor os relatórios e quadros
+              Filtre por <strong>apenas uma unidade</strong>, <strong>múltiplas unidades</strong> ou <strong>todas</strong> para compor relatórios, PDFs e planilhas formatadas
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Quick dropdown for 1-click single unit selection */}
+            <select
+              value={
+                selectedCommands.length === 1
+                  ? selectedCommands[0]
+                  : selectedCommands.length === commandList.length && commandList.length > 0
+                  ? 'ALL'
+                  : selectedCommands.length === 0
+                  ? 'NONE'
+                  : ''
+              }
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === 'ALL') {
+                  handleSelectAllCommands();
+                } else if (val === 'NONE') {
+                  handleClearAllCommands();
+                } else if (val) {
+                  handleSelectExclusiveCommand(val);
+                }
+              }}
+              className="bg-sky-50/80 border border-[#7EC2E8] text-[#002D5A] text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-hidden cursor-pointer"
+            >
+              <option value="">Filtro Rápido...</option>
+              <option value="ALL">Selecionar Todos (10 Comandos)</option>
+              <option value="NONE">Limpar Seleção (Nenhum)</option>
+              <optgroup label="Filtrar Apenas 1 Unidade:">
+                {commandList.map((c) => (
+                  <option key={c.id} value={c.code}>
+                    Apenas {c.code}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+
             <button
               onClick={handleSelectAllCommands}
               className="px-3 py-1.5 rounded-lg text-xs font-bold text-[#002D5A] bg-sky-50 hover:bg-sky-100 border border-[#7EC2E8]/40 transition-colors cursor-pointer"
@@ -735,33 +791,48 @@ export function ReportsView({
         {/* 10 Command Cards (CPI and CPA/I-1 to CPA/I-9) */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
           {commandList.map((cmd) => {
-            const isChecked = selectedCommandCodes.includes(cmd.code);
+            const isChecked = selectedCommands.includes(cmd.code);
             return (
-              <label
+              <div
                 key={cmd.id}
                 onClick={() => handleToggleCommand(cmd.code)}
-                className={`p-3.5 rounded-xl border flex flex-col items-center justify-center text-center gap-2 cursor-pointer transition-all ${
+                className={`p-3 rounded-xl border flex flex-col items-center justify-between text-center gap-2 cursor-pointer transition-all relative group ${
                   isChecked
                     ? 'border-[#002D5A] bg-sky-50/70 text-[#002D5A] font-bold shadow-xs ring-1 ring-[#002D5A]/20'
                     : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 opacity-70'
                 }`}
               >
-                <div className="w-full flex items-center justify-between">
+                <div className="w-full flex items-center justify-between pointer-events-none">
                   <input
                     type="checkbox"
                     checked={isChecked}
-                    onChange={() => {}} // Handled by parent label click
+                    readOnly
                     className="w-4 h-4 rounded text-[#002D5A] focus:ring-[#7EC2E8] border-slate-300 pointer-events-none"
                   />
                   {isChecked && <CheckCircle2 className="w-3.5 h-3.5 text-[#002D5A]" />}
                 </div>
 
-                <CommandBadge commandCode={cmd.code} size="sm" />
+                <div className="pointer-events-none">
+                  <CommandBadge commandCode={cmd.code} size="sm" />
+                </div>
 
-                <div className="text-xs font-bold tracking-tight">
+                <div className="text-xs font-bold tracking-tight pointer-events-none">
                   {cmd.displayCode}
                 </div>
-              </label>
+
+                {/* Direct 1-Click Exclusive Button */}
+                <button
+                  type="button"
+                  title={`Filtrar apenas ${cmd.code}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSelectExclusiveCommand(cmd.code);
+                  }}
+                  className="w-full mt-1 py-1 px-1.5 text-[10px] font-bold rounded-lg bg-white hover:bg-[#002D5A] text-slate-600 hover:text-white border border-slate-200 hover:border-[#002D5A] transition-all shadow-2xs cursor-pointer"
+                >
+                  Apenas Este
+                </button>
+              </div>
             );
           })}
         </div>

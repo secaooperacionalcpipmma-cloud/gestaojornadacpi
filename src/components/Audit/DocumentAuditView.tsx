@@ -166,8 +166,10 @@ export const DocumentAuditView: React.FC<DocumentAuditViewProps> = ({
 
     AUDIT_UNITS_MATRIX.forEach((u) => {
       matrix[u.code] = {} as Record<AuditDocumentType, AuditDocumentSlot>;
+      const defaultDocs = DEFAULT_UNIT_DOCUMENTS[u.standardCode] || DEFAULT_UNIT_DOCUMENTS[u.code] || {};
 
       MATRIX_COLUMNS.forEach((col) => {
+        const prefill = defaultDocs[col.type] || '';
         matrix[u.code][col.type] = {
           type: col.type,
           title: col.headerLabel,
@@ -175,9 +177,17 @@ export const DocumentAuditView: React.FC<DocumentAuditViewProps> = ({
           description: col.description,
           legalArticle: col.legalArticle,
           requiredForAudit: false,
-          content: '',
-          fileName: undefined,
-          fileType: undefined,
+          content: prefill,
+          fileName: prefill
+            ? `${col.headerLabel.replace(/\s+/g, '_')}_${u.code.replace(/[^a-zA-Z0-9]/g, '')}.${col.type === 'PLANILHA_UNICA_PAGADORIA' ? 'xlsx' : col.type === 'ORDEM_SERVICO_OPERACAO' ? 'docx' : 'pdf'}`
+            : undefined,
+          fileType: prefill
+            ? col.type === 'PLANILHA_UNICA_PAGADORIA'
+              ? 'EXCEL'
+              : col.type === 'ORDEM_SERVICO_OPERACAO'
+              ? 'WORD'
+              : 'PDF'
+            : undefined,
         };
       });
     });
@@ -189,6 +199,38 @@ export const DocumentAuditView: React.FC<DocumentAuditViewProps> = ({
   const [multiAuditResult, setMultiAuditResult] = useState<MultiUnitAuditResult | null>(null);
   const [activeFilterStatus, setActiveFilterStatus] = useState<'TODOS' | 'APROVADOS' | 'PENDENCIAS'>('TODOS');
   const [selectedUnitDetail, setSelectedUnitDetail] = useState<UnitAuditSummary | null>(null);
+
+  // Auto-run initial audit on mount
+  useEffect(() => {
+    // Map unitDocumentsMap formatted as expected by service
+    const unitDocsMap: Record<string, AuditDocumentSlot[]> = {};
+
+    AUDIT_UNITS_MATRIX.forEach((u) => {
+      const slotsObj = documentsMatrix[u.code] || {};
+      const slotsArray: AuditDocumentSlot[] = MATRIX_COLUMNS.map((col) => slotsObj[col.type]);
+      unitDocsMap[u.standardCode] = slotsArray;
+      unitDocsMap[u.code] = slotsArray;
+    });
+
+    const targetStandardCodes = AUDIT_UNITS_MATRIX.map((u) => u.standardCode);
+
+    try {
+      const result = performMultiUnitAudit(
+        targetStandardCodes,
+        unitDocsMap,
+        commands,
+        ordinance,
+        currentUser.name
+      );
+
+      setMultiAuditResult(result);
+      if (result.unitSummaries.length > 0) {
+        setSelectedUnitDetail(result.unitSummaries[0]);
+      }
+    } catch (e) {
+      console.warn('Erro na auditoria inicial:', e);
+    }
+  }, []);
 
   // Modal editor / viewer state
   const [modalCell, setModalCell] = useState<{ unitCode: string; colType: AuditDocumentType } | null>(null);

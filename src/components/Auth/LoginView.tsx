@@ -28,7 +28,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const [errorMessage, setErrorMessage] = useState('');
   const [showCredentialsGuide, setShowCredentialsGuide] = useState(false);
 
-  const handleCredentialsLogin = (e: React.FormEvent) => {
+  const handleCredentialsLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
 
@@ -43,8 +43,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
     setIsLoading(true);
 
-    setTimeout(() => {
-      const res = storageService.authenticateWithCredentials(identifier, password);
+    try {
+      const res = await storageService.authenticateWithCredentialsAsync(identifier, password);
       setIsLoading(false);
 
       if (res.success && res.user) {
@@ -52,7 +52,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       } else {
         setErrorMessage(res.error || 'Credenciais inválidas. Verifique seu usuário e senha.');
       }
-    }, 200);
+    } catch (err: any) {
+      setIsLoading(false);
+      setErrorMessage(err?.message || 'Falha ao autenticar. Tente novamente.');
+    }
   };
 
   // Quick fill helper

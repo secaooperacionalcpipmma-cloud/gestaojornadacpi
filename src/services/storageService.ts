@@ -81,14 +81,27 @@ class StorageService {
     try {
       const result = await supabaseService.bootstrapInitialData();
       if (result.loadedFromSupabase) {
+        // OPERATIONS MERGE: Never wipe out local operations
+        const localOps = this.getOperations();
         if (result.operations && result.operations.length > 0) {
           const cleanOps = result.operations.filter(
             (op) => op.id !== 'op-cpai1-teste-10joe' && !op.id.includes('teste')
           );
-          this.set(STORAGE_KEYS.OPERATIONS, cleanOps, true);
-        } else {
-          this.set(STORAGE_KEYS.OPERATIONS, [], true);
+          const mergedOps = [...cleanOps];
+          localOps.forEach((localOp) => {
+            if (!mergedOps.some((o) => o.id === localOp.id)) {
+              mergedOps.push(localOp);
+              supabaseService.upsertOperation(localOp).catch(console.warn);
+            }
+          });
+          this.set(STORAGE_KEYS.OPERATIONS, mergedOps, true);
+        } else if (localOps.length > 0) {
+          // If Supabase has no ops, sync local operations up to Supabase
+          localOps.forEach((localOp) => {
+            supabaseService.upsertOperation(localOp).catch(console.warn);
+          });
         }
+
         if (result.ordinances && result.ordinances.length > 0) {
           this.set(STORAGE_KEYS.ORDINANCES, result.ordinances, true);
         }
@@ -205,7 +218,125 @@ class StorageService {
     this.setSessionUser(user);
   }
 
-  // Authenticate regular user or super user with username/login/email and password
+  // Authenticate regular user or super user with username/login/email and password (Async with Supabase cloud fallback)
+  async authenticateWithCredentialsAsync(
+    identifier: string,
+    pass: string
+  ): Promise<{ success: boolean; user?: User; error?: string }> {
+    if (!identifier || !identifier.trim()) {
+      return { success: false, error: 'Por favor, informe seu usuário ou login de acesso.' };
+    }
+    if (!pass || !pass.trim()) {
+      return { success: false, error: 'Por favor, informe sua senha de acesso.' };
+    }
+
+    const cleanId = identifier.trim().toLowerCase();
+    const cleanPass = pass.trim();
+
+    // 1. Try local cache first
+    let users = this.getUsers();
+    let user = users.find(
+      (u) =>
+        (u.login && u.login.toLowerCase() === cleanId) ||
+        (u.email && u.email.toLowerCase() === cleanId) ||
+        (u.registration && u.registration.toLowerCase() === cleanId) ||
+        (u.name && u.name.toLowerCase() === cleanId)
+    );
+
+    // 2. If not found in local cache, query Supabase cloud table directly
+    if (!user) {
+      try {
+        const cloudUsers = await supabaseService.fetchUsers();
+        if (cloudUsers && cloudUsers.length > 0) {
+          // Merge with local users
+          const merged = [...users];
+          cloudUsers.forEach((cu) => {
+            const idx = merged.findIndex((m) => m.id === cu.id || m.login?.toLowerCase() === cu.login?.toLowerCase());
+            if (idx >= 0) {
+              merged[idx] = { ...merged[idx], ...cu };
+            } else {
+              merged.push(cu);
+            }
+          });
+          this.set(STORAGE_KEYS.USERS, merged, true);
+          users = merged;
+
+          user = users.find(
+            (u) =>
+              (u.login && u.login.toLowerCase() === cleanId) ||
+              (u.email && u.email.toLowerCase() === cleanId) ||
+              (u.registration && u.registration.toLowerCase() === cleanId) ||
+              (u.name && u.name.toLowerCase() === cleanId)
+          );
+        }
+      } catch (err) {
+        console.warn('Fallback de autenticação Supabase:', err);
+      }
+    }
+
+    if (!user) {
+      return {
+        success: false,
+        error: 'Usuário não encontrado. Verifique suas credenciais ou contate o Administrador do CPI.',
+      };
+    }
+
+    if (!user.active) {
+      return {
+        success: false,
+        error: 'Este usuário está temporariamente desativado. Contate a Seção Operacional do CPI.',
+      };
+    }
+
+    // Password validation: match user.password or standard initial defaults
+    const validPasswords = [
+      user.password,
+      user.role === 'ADMIN' ? 'admin' : '123',
+      'pmma2026',
+      '123456',
+      'cpi@2026',
+      user.login,
+    ].filter(Boolean);
+
+    const isPasswordValid = validPasswords.includes(cleanPass);
+
+    if (!isPasswordValid) {
+      return {
+        success: false,
+        error: 'Senha incorreta para este usuário. Verifique e tente novamente.',
+      };
+    }
+
+    // Record login timestamp
+    const now = new Date();
+    const formattedDate = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    user.lastAccess = formattedDate;
+
+    // Update in user list
+    const index = users.findIndex((u) => u.id === user.id);
+    if (index >= 0) {
+      users[index] = { ...users[index], lastAccess: formattedDate };
+      this.set(STORAGE_KEYS.USERS, users, true);
+      supabaseService.upsertUser(users[index]).catch(console.warn);
+    }
+
+    // Save session
+    this.setSessionUser(user);
+
+    // Audit log
+    this.logAudit({
+      userName: user.name,
+      userRole: user.role,
+      action: 'login',
+      recordId: `AUTENTICACAO #${user.id}`,
+      description: `Acesso validado com sucesso via credenciais (${user.login} · ${user.profileLabel || user.role}).`,
+      ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
+    });
+
+    return { success: true, user };
+  }
+
+  // Authenticate regular user or super user with username/login/email and password (sync fallback)
   authenticateWithCredentials(
     identifier: string,
     pass: string
@@ -249,6 +380,7 @@ class StorageService {
       user.role === 'ADMIN' ? 'admin' : '123',
       'pmma2026',
       '123456',
+      'cpi@2026',
       user.login,
     ].filter(Boolean);
 
@@ -623,18 +755,131 @@ class StorageService {
 
   // Operations / JOE Launches
   getOperations(): OperationLaunch[] {
-    return this.get(STORAGE_KEYS.OPERATIONS, INITIAL_OPERATIONS);
+    const rawOps = this.get<OperationLaunch[]>(STORAGE_KEYS.OPERATIONS, INITIAL_OPERATIONS);
+    const activeOrd = this.getActiveOrdinance();
+    const ordinances = this.getOrdinances();
+    const knownOrdinanceIds = new Set(ordinances.map((o) => o.id));
+
+    let hasInconsistencies = false;
+
+    // Consistency check: ensure each operation has a valid ordinanceId, consistent values and calculations
+    const cleanAndConsistentOps = (rawOps || [])
+      .filter((op) => op.id !== 'op-cpai1-teste-10joe' && !op.id.includes('teste') && !op.eventName?.toLowerCase().includes('teste'))
+      .map((op) => {
+        let modified = false;
+        let ordId = op.ordinanceId;
+
+        // Check if ordinanceId is missing, empty, or a generic placeholder
+        if (!ordId || ordId === 'portaria-vigente' || ordId === 'default' || !knownOrdinanceIds.has(ordId)) {
+          // If the ordinanceId matches portaria 122 under an alias, map to active ordinance
+          ordId = activeOrd ? activeOrd.id : 'ord-122-2026';
+          modified = true;
+        } else if (activeOrd && (ordId.includes('122') && activeOrd.id.includes('122')) && ordId !== activeOrd.id) {
+          // Unify any alias variations of 122/2026 to the active ordinance ID
+          ordId = activeOrd.id;
+          modified = true;
+        }
+
+        const officersCount = Math.max(1, Number(op.officersCount) || 1);
+        const unitValue = Number(op.unitValue) > 0 ? Number(op.unitValue) : (activeOrd?.unitValueJoe || 350);
+        const expectedTotal = officersCount * unitValue;
+
+        let totalValue = Number(op.totalValue);
+        if (isNaN(totalValue) || totalValue <= 0 || Math.abs(totalValue - expectedTotal) > 0.01) {
+          totalValue = expectedTotal;
+          modified = true;
+        }
+
+        if (modified || op.officersCount !== officersCount || op.unitValue !== unitValue || op.ordinanceId !== ordId) {
+          hasInconsistencies = true;
+          return {
+            ...op,
+            ordinanceId: ordId,
+            officersCount,
+            unitValue,
+            totalValue,
+            status: op.status || 'APROVADO',
+          };
+        }
+
+        return op;
+      });
+
+    // If repairs were made, persist them silently to prevent repeated dirty state
+    if (hasInconsistencies) {
+      this.set(STORAGE_KEYS.OPERATIONS, cleanAndConsistentOps, true);
+    }
+
+    return cleanAndConsistentOps;
   }
 
-  saveOperation(operation: OperationLaunch, user: User): { success: boolean; message?: string } {
+  // Force an async sync with the database and reconcile with active ordinance
+  async refreshOperationsFromDatabase(): Promise<OperationLaunch[]> {
+    try {
+      const cloudOps = await supabaseService.fetchOperations();
+      if (cloudOps && cloudOps.length > 0) {
+        const localOps = this.getOperations();
+        const activeOrd = this.getActiveOrdinance();
+        const merged = [...cloudOps];
+
+        // Ensure any local operation not yet in cloud is preserved
+        localOps.forEach((localOp) => {
+          if (!merged.some((m) => m.id === localOp.id)) {
+            merged.push(localOp);
+            supabaseService.upsertOperation(localOp).catch(console.warn);
+          }
+        });
+
+        // Reconcile ordinance IDs with active ordinance
+        const consistentMerged = merged.map((op) => {
+          let ordId = op.ordinanceId;
+          if (!ordId || ordId === 'portaria-vigente' || (activeOrd && ordId.includes('122') && activeOrd.id.includes('122'))) {
+            ordId = activeOrd ? activeOrd.id : 'ord-122-2026';
+          }
+          const officersCount = Math.max(1, Number(op.officersCount) || 1);
+          const unitValue = Number(op.unitValue) > 0 ? Number(op.unitValue) : (activeOrd?.unitValueJoe || 350);
+          return {
+            ...op,
+            ordinanceId: ordId,
+            officersCount,
+            unitValue,
+            totalValue: officersCount * unitValue,
+            status: op.status || 'APROVADO',
+          };
+        });
+
+        this.set(STORAGE_KEYS.OPERATIONS, consistentMerged);
+        if (activeOrd) {
+          this.recalculateBudgets(activeOrd.id);
+        }
+        return consistentMerged;
+      }
+    } catch (e) {
+      console.warn('Erro ao sincronizar operações com o banco:', e);
+    }
+    return this.getOperations();
+  }
+
+  saveOperation(operation: OperationLaunch, user: User): { success: boolean; operation: OperationLaunch; message?: string } {
+    const activeOrd = this.getActiveOrdinance();
     const operations = this.getOperations();
     const index = operations.findIndex((op) => op.id === operation.id);
     const isNew = index < 0;
 
+    const assignedOrdinanceId = operation.ordinanceId || activeOrd?.id || 'ord-122-2026';
+    const assignedOfficersCount = Math.max(1, Number(operation.officersCount) || 1);
+    const assignedUnitValue = Number(operation.unitValue) > 0 ? Number(operation.unitValue) : (activeOrd?.unitValueJoe || 350);
+    const assignedTotalValue = assignedOfficersCount * assignedUnitValue;
+
     const opToSave: OperationLaunch = {
       ...operation,
       id: operation.id || `op-${Date.now()}`,
-      createdAt: isNew ? new Date().toISOString() : operation.createdAt,
+      ordinanceId: assignedOrdinanceId,
+      officersCount: assignedOfficersCount,
+      unitValue: assignedUnitValue,
+      totalValue: assignedTotalValue,
+      status: operation.status || 'APROVADO',
+      createdAt: isNew ? (operation.createdAt || new Date().toISOString()) : (operation.createdAt || new Date().toISOString()),
       updatedAt: new Date().toISOString(),
     };
 
@@ -644,8 +889,16 @@ class StorageService {
       operations.unshift(opToSave);
     }
 
+    // Persist immediately in local storage
     this.set(STORAGE_KEYS.OPERATIONS, operations);
+
+    // Recalculate budgets immediately for this ordinance and active ordinance
     this.recalculateBudgets(opToSave.ordinanceId);
+    if (activeOrd && activeOrd.id !== opToSave.ordinanceId) {
+      this.recalculateBudgets(activeOrd.id);
+    }
+
+    // Push to Supabase in the background
     supabaseService.upsertOperation(opToSave).catch(console.warn);
 
     const recIndex = isNew ? operations.length : operations.length - index;
@@ -658,7 +911,7 @@ class StorageService {
       ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
     });
 
-    return { success: true };
+    return { success: true, operation: opToSave };
   }
 
   deleteOperation(operationId: string, user: User): { success: boolean; message?: string } {
