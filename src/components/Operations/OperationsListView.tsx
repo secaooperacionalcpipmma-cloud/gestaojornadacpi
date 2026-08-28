@@ -12,9 +12,10 @@ import {
   CheckCircle,
   RefreshCw,
   Plus,
+  Clock,
 } from 'lucide-react';
 import { CommandUnit, OperationLaunch, OrdinancePeriod } from '../../types';
-import { formatCurrencyBRL, formatInteger } from '../../utils/formatters';
+import { formatCurrencyBRL, formatInteger, formatDateBRL, formatDateTimeBRL } from '../../utils/formatters';
 
 interface OperationsListViewProps {
   operations: OperationLaunch[];
@@ -321,7 +322,8 @@ export function OperationsListView({
                 <th className="py-3.5 px-4">Unidade</th>
                 <th className="py-3.5 px-4">Evento / Operação</th>
                 <th className="py-3.5 px-4">Ordem / Processo SEI</th>
-                <th className="py-3.5 px-4">Data e Horário</th>
+                <th className="py-3.5 px-4">Data do Serviço</th>
+                <th className="py-3.5 px-4">Lançado Em (Dia / Hora)</th>
                 <th className="py-3.5 px-4 text-center">Efetivo (JOEs)</th>
                 <th className="py-3.5 px-4 text-right">Valor Unit.</th>
                 <th className="py-3.5 px-4 text-right">Total</th>
@@ -331,7 +333,7 @@ export function OperationsListView({
             <tbody className="divide-y divide-slate-100">
               {filteredOperations.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={10} className="py-12 text-center text-slate-400">
                     <FileSpreadsheet className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                     <p className="text-sm font-medium text-slate-600 mb-1">
                       Nenhum lançamento de JOE encontrado para os filtros selecionados.
@@ -377,8 +379,19 @@ export function OperationsListView({
                       </div>
                     </td>
                     <td className="py-3.5 px-4 text-slate-700">
-                      <div className="font-semibold">{formatDate(op.serviceDate)}</div>
-                      <div className="text-xs text-slate-400">{op.startTime || '20h às 02h'}</div>
+                      <div className="font-bold text-slate-900">{formatDateBRL(op.serviceDate)}</div>
+                      <div className="text-xs text-slate-500">{op.startTime || '20h às 02h'}</div>
+                    </td>
+                    <td className="py-3.5 px-4 text-slate-700">
+                      <div className="inline-flex items-center gap-1 text-xs font-semibold text-slate-800 bg-slate-100/90 px-2 py-1 rounded-md border border-slate-200/80">
+                        <Clock className="w-3 h-3 text-[#002D5A]" />
+                        <span>{formatDateTimeBRL(op.createdAt)}</span>
+                      </div>
+                      {op.createdBy && (
+                        <div className="text-[10px] text-slate-400 mt-0.5 font-medium truncate max-w-[140px]" title={`Por: ${op.createdBy}`}>
+                          Por: {op.createdBy}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3.5 px-4 text-center font-bold text-slate-900 font-mono text-sm">
                       {formatInteger(op.officersCount)}
@@ -418,7 +431,7 @@ export function OperationsListView({
             {filteredOperations.length > 0 && (
               <tfoot className="bg-slate-50 border-t-2 border-slate-200 font-bold text-slate-900">
                 <tr>
-                  <td colSpan={5} className="py-3.5 px-4 text-slate-800 uppercase text-xs tracking-wider">
+                  <td colSpan={6} className="py-3.5 px-4 text-slate-800 uppercase text-xs tracking-wider">
                     Total Geral Filtrado ({filteredOperations.length} registros)
                   </td>
                   <td className="py-3.5 px-4 text-center font-mono text-sm font-extrabold text-slate-900">

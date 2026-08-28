@@ -58,3 +58,46 @@ export function parseBRLInput(input: string): number {
   const num = parseFloat(clean);
   return isNaN(num) ? 0 : num;
 }
+
+/**
+ * Formats an ISO date string or YYYY-MM-DD to Brazilian date format: DD/MM/AAAA
+ */
+export function formatDateBRL(dateStr: string | undefined | null): string {
+  if (!dateStr) return '—';
+  try {
+    const parts = dateStr.split('T')[0].split('-');
+    if (parts.length === 3) {
+      const [year, month, day] = parts;
+      return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
+    }
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString('pt-BR');
+    }
+  } catch {
+    // fallback
+  }
+  return dateStr;
+}
+
+/**
+ * Formats an ISO timestamp or date to full Brazilian date and time: DD/MM/AAAA às HH:MM
+ */
+export function formatDateTimeBRL(dateStr: string | undefined | null): string {
+  if (!dateStr) return '—';
+  try {
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      return `${day}/${month}/${year} às ${hours}:${minutes}`;
+    }
+  } catch {
+    // fallback
+  }
+  return dateStr;
+}
+

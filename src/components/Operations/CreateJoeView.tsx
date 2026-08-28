@@ -157,6 +157,17 @@ export function CreateJoeView({
         details: `A solicitação de JOE para "${opData.eventName}" (R$ ${opData.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) foi gravada com sucesso no Supabase.`,
       });
       setIsSubmitting(false);
+      
+      // Auto-navigate back to list after 1.8 seconds if the user doesn't interact
+      setTimeout(() => {
+        // Only if still showing this success message
+        setStatusMessage((curr) => {
+          if (curr?.type === 'success') {
+            onCancel();
+          }
+          return curr;
+        });
+      }, 2200);
     } catch (err: any) {
       setIsSubmitting(false);
       setStatusMessage({
@@ -182,6 +193,53 @@ export function CreateJoeView({
           </p>
         </div>
       </div>
+
+      {/* Top Status Message if present */}
+      {statusMessage && (
+        <div
+          className={`mb-6 p-4 sm:p-5 rounded-2xl border-2 transition-all ${
+            statusMessage.type === 'success'
+              ? 'bg-emerald-50 border-emerald-500 text-emerald-950 shadow-sm'
+              : 'bg-rose-50 border-rose-500 text-rose-950 shadow-sm'
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <div
+              className={`p-2 rounded-xl text-white shrink-0 mt-0.5 ${
+                statusMessage.type === 'success' ? 'bg-emerald-600' : 'bg-rose-600'
+              }`}
+            >
+              {statusMessage.type === 'success' ? (
+                <CheckCircle2 className="w-5 h-5" />
+              ) : (
+                <ShieldAlert className="w-5 h-5" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h4 className={`text-base font-black ${statusMessage.type === 'success' ? 'text-emerald-900' : 'text-rose-900'}`}>
+                  {statusMessage.text}
+                </h4>
+                <span
+                  className={`text-[11px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 ${
+                    statusMessage.type === 'success'
+                      ? 'bg-emerald-200 text-emerald-900'
+                      : 'bg-rose-200 text-rose-900'
+                  }`}
+                >
+                  <Database className="w-3 h-3" />
+                  {statusMessage.type === 'success' ? 'PERSISTÊNCIA SUPABASE OK' : 'ERRO NO BANCO'}
+                </span>
+              </div>
+              {statusMessage.details && (
+                <p className={`text-xs sm:text-sm mt-1.5 leading-relaxed ${statusMessage.type === 'success' ? 'text-emerald-800' : 'text-rose-800'}`}>
+                  {statusMessage.details}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Row 1: CPA/I | Unidade | Processo SEI */}

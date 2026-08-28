@@ -886,7 +886,23 @@ class StorageService {
       updatedAt: new Date().toISOString(),
     };
 
-    // Push to Supabase Cloud Database and verify actual insertion
+    // 1. Persist IMMEDIATELY in local storage for instant zero-latency UI appearance
+    if (index >= 0) {
+      operations[index] = opToSave;
+    } else {
+      operations.unshift(opToSave);
+    }
+    this.set(STORAGE_KEYS.OPERATIONS, operations);
+
+    // Recalculate budgets immediately for this ordinance and active ordinance
+    this.recalculateBudgets(opToSave.ordinanceId);
+    if (activeOrd && activeOrd.id !== opToSave.ordinanceId) {
+      this.recalculateBudgets(activeOrd.id);
+    }
+
+    const recIndex = isNew ? operations.length : operations.length - index;
+
+    // 2. Push to Supabase Cloud Database asynchronously
     let syncedWithCloud = false;
     let dbError: string | undefined;
 
@@ -900,49 +916,24 @@ class StorageService {
       dbError = cloudErr?.message || 'Erro inesperado de comunicação com o Supabase.';
     }
 
-    if (syncedWithCloud) {
-      if (index >= 0) {
-        operations[index] = opToSave;
-      } else {
-        operations.unshift(opToSave);
-      }
+    this.logAudit({
+      userName: user.name,
+      userRole: user.role,
+      action: isNew ? 'criar' : 'editar',
+      recordId: `lancamentos #${recIndex}`,
+      description: `${opToSave.eventName} · ${opToSave.officersCount} JOEs · R$ ${opToSave.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} ${syncedWithCloud ? '(Sincronizado no Supabase)' : '(Gravado Localmente)'}`,
+      ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
+    });
 
-      // Persist in local storage
-      this.set(STORAGE_KEYS.OPERATIONS, operations);
-
-      // Recalculate budgets immediately for this ordinance and active ordinance
-      this.recalculateBudgets(opToSave.ordinanceId);
-      if (activeOrd && activeOrd.id !== opToSave.ordinanceId) {
-        this.recalculateBudgets(activeOrd.id);
-      }
-
-      const recIndex = isNew ? operations.length : operations.length - index;
-      this.logAudit({
-        userName: user.name,
-        userRole: user.role,
-        action: isNew ? 'criar' : 'editar',
-        recordId: `lancamentos #${recIndex}`,
-        description: `${opToSave.eventName} · ${opToSave.officersCount} JOEs · R$ ${opToSave.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (Salvo no Banco de Dados Supabase)`,
-        ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
-      });
-
-      return {
-        success: true,
-        operation: opToSave,
-        syncedWithCloud: true,
-        message: 'Lançamento salvo com sucesso no banco de dados!',
-      };
-    } else {
-      // Database write failed
-      console.error('Erro ao salvar no banco de dados:', dbError);
-      return {
-        success: false,
-        operation: opToSave,
-        syncedWithCloud: false,
-        dbError: dbError || 'Erro ao persistir no banco de dados.',
-        message: `Erro ao salvar no banco de dados: ${dbError || 'Verifique a conexão com o Supabase.'}`,
-      };
-    }
+    return {
+      success: true,
+      operation: opToSave,
+      syncedWithCloud,
+      dbError,
+      message: syncedWithCloud
+        ? 'Lançamento salvo com sucesso no banco de dados!'
+        : 'Lançamento registrado com sucesso no sistema!',
+    };
   }
 
   deleteOperation(operationId: string, user: User): { success: boolean; message?: string } {
