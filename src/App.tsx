@@ -15,6 +15,7 @@ import { BackupManagerModal } from './components/Backup/BackupManagerModal';
 import { LoginView } from './components/Auth/LoginView';
 import { storageService } from './services/storageService';
 import { googleDriveBackupService } from './services/googleDriveBackupService';
+import { CheckCircle2, AlertTriangle, XCircle, X } from 'lucide-react';
 import {
   OperationLaunch,
   CommandBudget,
@@ -41,6 +42,22 @@ export default function App() {
   // Modal State
   const [isCreateOrdinanceOpen, setIsCreateOrdinanceOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+
+  // Toast Notification State
+  const [toast, setToast] = useState<{
+    id: string;
+    type: 'success' | 'error' | 'info';
+    title: string;
+    message?: string;
+  } | null>(null);
+
+  const showToast = (type: 'success' | 'error' | 'info', title: string, message?: string) => {
+    const id = Date.now().toString();
+    setToast({ id, type, title, message });
+    setTimeout(() => {
+      setToast((curr) => (curr?.id === id ? null : curr));
+    }, 6500);
+  };
 
   // Edit / Pre-fill state
   const [launchPreselectedCpa, setLaunchPreselectedCpa] = useState<string>('');
@@ -110,18 +127,38 @@ export default function App() {
     reloadData();
   };
 
-  // Handle operation launch save
-  const handleSaveOperation = (op: OperationLaunch) => {
-    storageService.saveOperation(op, currentUser);
-    reloadData();
-    setOperationToEdit(null);
-    setLaunchPreselectedCpa('');
-    setActiveTab('LANCAMENTOS');
+  // Handle operation launch save with explicit database verification
+  const handleSaveOperation = async (op: OperationLaunch) => {
+    const result = await storageService.saveOperation(op, currentUser);
+    
+    if (result.syncedWithCloud) {
+      showToast(
+        'success',
+        'Salvo com sucesso no Banco de Dados!',
+        `Operação "${op.eventName}" (${op.officersCount} JOEs) persistida no Supabase.`
+      );
+      reloadData();
+      setOperationToEdit(null);
+      setLaunchPreselectedCpa('');
+    } else {
+      showToast(
+        'error',
+        'Erro ao salvar no Banco de Dados',
+        result.dbError || 'Não foi possível confirmar a gravação no Supabase. O registro não foi salvo no banco.'
+      );
+    }
+    
+    return result;
   };
 
   // Handle operation delete
-  const handleDeleteOperation = (opId: string) => {
-    storageService.deleteOperation(opId, currentUser);
+  const handleDeleteOperation = async (opId: string) => {
+    const res = storageService.deleteOperation(opId, currentUser);
+    if (res.success) {
+      showToast('info', 'Lançamento excluído', 'O registro foi removido com sucesso.');
+    } else {
+      showToast('error', 'Erro ao excluir', res.message || 'Falha ao remover o registro.');
+    }
     reloadData();
   };
 
@@ -291,6 +328,14 @@ export default function App() {
             onDelete={handleDeleteOperation}
             initialCommandFilter={listCpaFilter}
             onNavigateToReports={() => setActiveTab('RELATORIOS')}
+            onNavigateToCreate={() => {
+              setOperationToEdit(null);
+              setActiveTab('LANCAR_JOE');
+            }}
+            onRefreshData={async () => {
+              await storageService.refreshOperationsFromDatabase();
+              reloadData();
+            }}
           />
         )}
 
@@ -382,6 +427,58 @@ export default function App() {
         currentUser={currentUser}
         onDataRestored={reloadData}
       />
+
+      {/* Global Toast Notification */}
+      {toast && (
+        <aside
+          role="status"
+          aria-live="polite"
+          aria-label="Notificação do sistema"
+          className="fixed bottom-6 right-6 z-50 max-w-md w-full shadow-2xl rounded-2xl overflow-hidden border-2 transition-all duration-300 animate-in fade-in slide-in-from-bottom-5"
+        >
+          <div
+            className={`p-4 flex items-start gap-3.5 ${
+              toast.type === 'success'
+                ? 'bg-emerald-900/95 border-emerald-500 text-white'
+                : toast.type === 'error'
+                ? 'bg-rose-950/95 border-rose-500 text-white'
+                : 'bg-slate-900/95 border-slate-700 text-white'
+            }`}
+          >
+            <div className="shrink-0 mt-0.5">
+              {toast.type === 'success' && (
+                <div className="p-1.5 rounded-xl bg-emerald-500 text-white">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+              )}
+              {toast.type === 'error' && (
+                <div className="p-1.5 rounded-xl bg-rose-500 text-white">
+                  <XCircle className="w-5 h-5" />
+                </div>
+              )}
+              {toast.type === 'info' && (
+                <div className="p-1.5 rounded-xl bg-blue-500 text-white">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+              )}
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <h5 className="text-sm font-black tracking-tight">{toast.title}</h5>
+              {toast.message && (
+                <p className="text-xs text-slate-200 mt-1 leading-relaxed break-words">{toast.message}</p>
+              )}
+            </div>
+
+            <button
+              onClick={() => setToast(null)}
+              className="text-slate-300 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </aside>
+      )}
 
       {/* Subtle Footer */}
       <footer className="mt-auto py-6 border-t border-slate-200/80 text-center text-xs text-slate-400">

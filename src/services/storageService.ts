@@ -85,7 +85,7 @@ class StorageService {
         const localOps = this.getOperations();
         if (result.operations && result.operations.length > 0) {
           const cleanOps = result.operations.filter(
-            (op) => op.id !== 'op-cpai1-teste-10joe' && !op.id.includes('teste')
+            (op) => op.id !== 'op-cpai1-teste-10joe'
           );
           const mergedOps = [...cleanOps];
           localOps.forEach((localOp) => {
@@ -128,7 +128,7 @@ class StorageService {
         }
         if (result.auditLogs && result.auditLogs.length > 0) {
           const cleanLogs = result.auditLogs.filter(
-            (log) => log.id !== 'aud-cpai1-solic-10joe' && !log.id.includes('teste')
+            (log) => log.id !== 'aud-cpai1-solic-10joe'
           );
           this.set(STORAGE_KEYS.AUDIT_LOGS, cleanLogs, true);
         }
@@ -764,7 +764,7 @@ class StorageService {
 
     // Consistency check: ensure each operation has a valid ordinanceId, consistent values and calculations
     const cleanAndConsistentOps = (rawOps || [])
-      .filter((op) => op.id !== 'op-cpai1-teste-10joe' && !op.id.includes('teste') && !op.eventName?.toLowerCase().includes('teste'))
+      .filter((op) => op.id !== 'op-cpai1-teste-10joe')
       .map((op) => {
         let modified = false;
         let ordId = op.ordinanceId;
@@ -860,7 +860,10 @@ class StorageService {
     return this.getOperations();
   }
 
-  saveOperation(operation: OperationLaunch, user: User): { success: boolean; operation: OperationLaunch; message?: string } {
+  async saveOperation(
+    operation: OperationLaunch,
+    user: User
+  ): Promise<{ success: boolean; operation: OperationLaunch; syncedWithCloud: boolean; message?: string; dbError?: string }> {
     const activeOrd = this.getActiveOrdinance();
     const operations = this.getOperations();
     const index = operations.findIndex((op) => op.id === operation.id);
@@ -883,35 +886,63 @@ class StorageService {
       updatedAt: new Date().toISOString(),
     };
 
-    if (index >= 0) {
-      operations[index] = opToSave;
+    // Push to Supabase Cloud Database and verify actual insertion
+    let syncedWithCloud = false;
+    let dbError: string | undefined;
+
+    try {
+      const cloudRes = await supabaseService.upsertOperation(opToSave);
+      syncedWithCloud = cloudRes.success;
+      dbError = cloudRes.error;
+    } catch (cloudErr: any) {
+      console.warn('Falha ao persistir no Supabase:', cloudErr);
+      syncedWithCloud = false;
+      dbError = cloudErr?.message || 'Erro inesperado de comunicação com o Supabase.';
+    }
+
+    if (syncedWithCloud) {
+      if (index >= 0) {
+        operations[index] = opToSave;
+      } else {
+        operations.unshift(opToSave);
+      }
+
+      // Persist in local storage
+      this.set(STORAGE_KEYS.OPERATIONS, operations);
+
+      // Recalculate budgets immediately for this ordinance and active ordinance
+      this.recalculateBudgets(opToSave.ordinanceId);
+      if (activeOrd && activeOrd.id !== opToSave.ordinanceId) {
+        this.recalculateBudgets(activeOrd.id);
+      }
+
+      const recIndex = isNew ? operations.length : operations.length - index;
+      this.logAudit({
+        userName: user.name,
+        userRole: user.role,
+        action: isNew ? 'criar' : 'editar',
+        recordId: `lancamentos #${recIndex}`,
+        description: `${opToSave.eventName} · ${opToSave.officersCount} JOEs · R$ ${opToSave.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (Salvo no Banco de Dados Supabase)`,
+        ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
+      });
+
+      return {
+        success: true,
+        operation: opToSave,
+        syncedWithCloud: true,
+        message: 'Lançamento salvo com sucesso no banco de dados!',
+      };
     } else {
-      operations.unshift(opToSave);
+      // Database write failed
+      console.error('Erro ao salvar no banco de dados:', dbError);
+      return {
+        success: false,
+        operation: opToSave,
+        syncedWithCloud: false,
+        dbError: dbError || 'Erro ao persistir no banco de dados.',
+        message: `Erro ao salvar no banco de dados: ${dbError || 'Verifique a conexão com o Supabase.'}`,
+      };
     }
-
-    // Persist immediately in local storage
-    this.set(STORAGE_KEYS.OPERATIONS, operations);
-
-    // Recalculate budgets immediately for this ordinance and active ordinance
-    this.recalculateBudgets(opToSave.ordinanceId);
-    if (activeOrd && activeOrd.id !== opToSave.ordinanceId) {
-      this.recalculateBudgets(activeOrd.id);
-    }
-
-    // Push to Supabase in the background
-    supabaseService.upsertOperation(opToSave).catch(console.warn);
-
-    const recIndex = isNew ? operations.length : operations.length - index;
-    this.logAudit({
-      userName: user.name,
-      userRole: user.role,
-      action: isNew ? 'criar' : 'editar',
-      recordId: `lancamentos #${recIndex}`,
-      description: `${opToSave.eventName} · ${opToSave.officersCount} JOEs · R$ ${opToSave.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
-      ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
-    });
-
-    return { success: true, operation: opToSave };
   }
 
   deleteOperation(operationId: string, user: User): { success: boolean; message?: string } {

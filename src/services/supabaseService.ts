@@ -349,27 +349,35 @@ class SupabaseService {
 
   // Map OperationLaunch to database row
   private mapOperationToDb(op: OperationLaunch): any {
+    let cleanServiceDate = op.serviceDate || new Date().toISOString().split('T')[0];
+    if (cleanServiceDate && cleanServiceDate.includes('T')) {
+      cleanServiceDate = cleanServiceDate.split('T')[0];
+    }
+
     const row: any = {
       id: op.id,
-      launch_number: op.launchNumber,
-      ordinance_id: op.ordinanceId,
+      launch_number: op.launchNumber || op.orderNumber || `${Math.floor(10000 + Math.random() * 90000)}`,
+      ordinance_id: op.ordinanceId || 'ord-122-2026',
       command_id: op.commandId,
       sub_unit: op.subUnit,
       event_name: op.eventName,
       event_subtext: op.eventSubtext || null,
-      service_date: op.serviceDate,
+      service_date: cleanServiceDate,
       start_time: op.startTime || null,
       end_time: op.endTime || null,
       duration_hours: op.calculatedDurationHours || 6,
-      officers_count: op.officersCount,
-      unit_value: op.unitValue,
-      total_amount: op.totalValue,
-      total_value: op.totalValue,
-      status: op.status,
+      officers_count: Number(op.officersCount) || 1,
+      joes_per_officer: Number(op.joesPerOfficer) || 1,
+      unit_value: Number(op.unitValue) || 350,
+      total_amount: Number(op.totalValue) || (Number(op.officersCount) || 1) * (Number(op.unitValue) || 350),
+      total_value: Number(op.totalValue) || (Number(op.officersCount) || 1) * (Number(op.unitValue) || 350),
+      status: op.status || 'APROVADO',
       sei_process_number: op.seiProcessNumber || null,
       sei_document_number: op.seiDocumentNumber || null,
       order_number: op.orderNumber || null,
       order_type: op.orderType || 'ORDEM_DE_SERVICO',
+      service_order_link: op.serviceOrderLink || null,
+      authorize_excess: Boolean(op.authorizeExcess),
       officers: op.officers || [],
       location: op.location || '',
       notes: op.notes || '',
@@ -403,48 +411,46 @@ class SupabaseService {
         .order('created_at', { ascending: false });
 
       if (error) {
-        // Soft fallback for offline/network issues
+        console.warn('Supabase fetchOperations aviso/offline:', error.message);
         this.setStatus('CONNECTED');
         return null;
       }
 
       this.setStatus('CONNECTED');
-      // Filter out any fictitious mock test records
+      // Filter out only specific legacy fixture if present
       const cleanOperations = (data || [])
         .map((row) => this.mapOperationFromDb(row))
-        .filter((op) => op.id !== 'op-cpai1-teste-10joe' && !op.id.includes('teste') && !op.eventName?.toLowerCase().includes('teste'));
-
-      // If mock test operation exists in cloud DB, purge it asynchronously
-      const hasMock = (data || []).some((r: any) => r.id === 'op-cpai1-teste-10joe' || String(r.id).includes('teste'));
-      if (hasMock) {
-        Promise.resolve(supabase.from('operation_launches').delete().eq('id', 'op-cpai1-teste-10joe')).catch(() => {});
-        Promise.resolve(supabase.from('operation_launches').delete().like('id', '%teste%')).catch(() => {});
-      }
+        .filter((op) => op.id !== 'op-cpai1-teste-10joe');
 
       return cleanOperations;
-    } catch {
+    } catch (err: any) {
+      console.warn('Supabase fetchOperations exception:', err?.message);
       this.setStatus('CONNECTED');
       return null;
     }
   }
 
-  public async upsertOperation(op: OperationLaunch): Promise<boolean> {
+  public async upsertOperation(op: OperationLaunch): Promise<{ success: boolean; error?: string }> {
     try {
       this.setStatus('SYNCING');
       const dbRow = this.mapOperationToDb(op);
 
       let attempts = 0;
+      let lastErrorMessage = '';
       while (attempts < 8) {
         attempts++;
         const { error } = await supabase.from('operation_launches').upsert(dbRow);
         if (!error) {
           this.setStatus('CONNECTED');
-          return true;
+          return { success: true };
         }
 
+        lastErrorMessage = error.message || error.details || error.hint || `Código de erro: ${error.code}`;
+        console.warn(`Supabase upsert tentativa ${attempts} erro:`, error.message, error.code, error.details);
+
         // If PostgREST reports a missing column in the schema cache, strip it and retry
-        if (error.code === 'PGRST204' && error.message) {
-          const match = error.message.match(/Could not find the '([^']+)' column/i);
+        if ((error.code === 'PGRST204' || error.code === '42703') && error.message) {
+          const match = error.message.match(/Could not find the '([^']+)' column/i) || error.message.match(/column "([^"]+)" of relation/i);
           if (match && match[1]) {
             const missingCol = match[1];
             delete dbRow[missingCol];
@@ -452,16 +458,17 @@ class SupabaseService {
           }
         }
 
-        // Network, offline, or transient issues - fallback gracefully to localStorage
-        this.setStatus('CONNECTED');
-        return false;
+        // Other non-recoverable error (e.g. permission/constraint)
+        break;
       }
 
       this.setStatus('CONNECTED');
-      return true;
-    } catch {
+      return { success: false, error: lastErrorMessage || 'Falha ao salvar no banco de dados Supabase.' };
+    } catch (err: any) {
+      const msg = err?.message || 'Exceção ao conectar com o banco de dados Supabase.';
+      console.warn('Erro ao salvar operação no Supabase:', msg);
       this.setStatus('CONNECTED');
-      return false;
+      return { success: false, error: msg };
     }
   }
 

@@ -10,6 +10,8 @@ import {
   Trash2,
   FileSpreadsheet,
   CheckCircle,
+  RefreshCw,
+  Plus,
 } from 'lucide-react';
 import { CommandUnit, OperationLaunch, OrdinancePeriod } from '../../types';
 import { formatCurrencyBRL, formatInteger } from '../../utils/formatters';
@@ -22,6 +24,8 @@ interface OperationsListViewProps {
   onDelete: (operationId: string) => void;
   initialCommandFilter?: string;
   onNavigateToReports?: () => void;
+  onNavigateToCreate?: () => void;
+  onRefreshData?: () => Promise<void> | void;
 }
 
 export function OperationsListView({
@@ -32,6 +36,8 @@ export function OperationsListView({
   onDelete,
   initialCommandFilter,
   onNavigateToReports,
+  onNavigateToCreate,
+  onRefreshData,
 }: OperationsListViewProps) {
   const [selectedCpa, setSelectedCpa] = useState<string>(initialCommandFilter || '');
   const [selectedUnit, setSelectedUnit] = useState<string>('');
@@ -39,6 +45,7 @@ export function OperationsListView({
   const [endDate, setEndDate] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [ordinanceScope, setOrdinanceScope] = useState<'CURRENT' | 'ALL'>('ALL');
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
   const normalizeCmd = (code?: string): string => {
     if (!code) return '';
@@ -103,6 +110,17 @@ export function OperationsListView({
     setEndDate('');
     setSearchQuery('');
     setOrdinanceScope('ALL');
+  };
+
+  const handleManualRefresh = async () => {
+    if (onRefreshData) {
+      setIsRefreshing(true);
+      try {
+        await onRefreshData();
+      } finally {
+        setIsRefreshing(false);
+      }
+    }
   };
 
   // Calculations
@@ -257,15 +275,42 @@ export function OperationsListView({
             </span>
           </div>
 
-          {onNavigateToReports && (
-            <button
-              onClick={onNavigateToReports}
-              className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-[#002D5A] hover:bg-[#001F3F] text-white transition-all shadow-xs flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-[#7EC2E8]" />
-              <span>Gerar Relatório Formatado em Excel</span>
-            </button>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {onRefreshData && (
+              <button
+                type="button"
+                onClick={handleManualRefresh}
+                disabled={isRefreshing}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                title="Sincronizar dados com o Supabase"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span>{isRefreshing ? 'Sincronizando...' : 'Sincronizar Banco'}</span>
+              </button>
+            )}
+
+            {onNavigateToCreate && (
+              <button
+                type="button"
+                onClick={onNavigateToCreate}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-[#002D5A] hover:bg-[#001F3F] text-white transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-4 h-4 text-[#7EC2E8]" />
+                <span>Novo Lançamento</span>
+              </button>
+            )}
+
+            {onNavigateToReports && (
+              <button
+                type="button"
+                onClick={onNavigateToReports}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-[#002D5A]" />
+                <span>Relatório Excel</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -288,7 +333,22 @@ export function OperationsListView({
                 <tr>
                   <td colSpan={9} className="py-12 text-center text-slate-400">
                     <FileSpreadsheet className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                    Nenhum lançamento de JOE encontrado para os filtros selecionados.
+                    <p className="text-sm font-medium text-slate-600 mb-1">
+                      Nenhum lançamento de JOE encontrado para os filtros selecionados.
+                    </p>
+                    <p className="text-xs text-slate-400 mb-4">
+                      Você pode registrar uma nova solicitação de jornada agora mesmo.
+                    </p>
+                    {onNavigateToCreate && (
+                      <button
+                        type="button"
+                        onClick={onNavigateToCreate}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#002D5A] hover:bg-[#001F3F] text-white text-xs font-bold shadow-md cursor-pointer transition-all active:scale-95"
+                      >
+                        <Plus className="w-4 h-4 text-[#7EC2E8]" />
+                        <span>Lançar Solicitação de JOE</span>
+                      </button>
+                    )}
                   </td>
                 </tr>
               ) : (

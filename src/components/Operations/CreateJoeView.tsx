@@ -12,6 +12,9 @@ import {
   ShieldAlert,
   Info,
   CheckCircle2,
+  RefreshCw,
+  Database,
+  ArrowRight,
 } from 'lucide-react';
 import { CommandUnit, OrdinancePeriod, OperationLaunch, User } from '../../types';
 import { formatCurrencyBRL, formatInteger } from '../../utils/formatters';
@@ -20,7 +23,9 @@ interface CreateJoeViewProps {
   commands: CommandUnit[];
   ordinance: OrdinancePeriod;
   currentUser: User;
-  onSave: (operation: OperationLaunch) => void;
+  onSave: (
+    operation: OperationLaunch
+  ) => Promise<{ success: boolean; syncedWithCloud: boolean; dbError?: string; message?: string } | void> | void;
   onCancel: () => void;
   initialCommand?: string;
   operationToEdit?: OperationLaunch | null;
@@ -51,7 +56,7 @@ export function CreateJoeView({
     operationToEdit?.eventName || ''
   );
   const [dataEvento, setDataEvento] = useState<string>(
-    operationToEdit?.serviceDate || ''
+    operationToEdit?.serviceDate || new Date().toISOString().split('T')[0]
   );
   const [horario, setHorario] = useState<string>(
     operationToEdit?.startTime || '20h às 02h'
@@ -68,6 +73,12 @@ export function CreateJoeView({
   const [autorizarExcedente, setAutorizarExcedente] = useState<boolean>(
     operationToEdit?.authorizeExcess || false
   );
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [statusMessage, setStatusMessage] = useState<{
+    type: 'success' | 'error';
+    text: string;
+    details?: string;
+  } | null>(null);
 
   // Available subunits based on selected CPA/I
   const selectedCommand = commands.find((c) => c.code === cpa || c.name === cpa || c.id === cpa);
@@ -79,14 +90,14 @@ export function CreateJoeView({
     }
   }, [cpa]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cpa) {
       alert('Por favor, selecione o CPA/I.');
       return;
     }
     if (!unidade) {
-      alert('Por favor, selecione a Unidade.');
+      alert('Por favor, selecione a Unidade Operacional.');
       return;
     }
     if (!nomeEvento.trim()) {
@@ -94,8 +105,8 @@ export function CreateJoeView({
       return;
     }
 
-    const numEfetivo = Number(efetivo) || 1;
-    const numValorUnit = Number(valorUnitario) || 350;
+    const numEfetivo = Math.max(1, Number(efetivo) || 1);
+    const numValorUnit = Number(valorUnitario) > 0 ? Number(valorUnitario) : (ordinance.unitValueJoe || 350);
     const totalVal = numEfetivo * numValorUnit;
 
     const opData: OperationLaunch = {
@@ -103,26 +114,57 @@ export function CreateJoeView({
       launchNumber: operationToEdit?.launchNumber || ordemServico || `${Math.floor(10000 + Math.random() * 90000)}`,
       commandId: cpa,
       subUnit: unidade,
-      ordinanceId: ordinance.id,
-      seiProcessNumber: processoSei,
-      orderNumber: ordemServico || 'Ordem de Serviço nº 000/2026',
-      eventName: nomeEvento,
+      ordinanceId: ordinance.id || 'ord-122-2026',
+      seiProcessNumber: processoSei.trim() || '2026.190110.00000',
+      orderNumber: ordemServico.trim() || `OS nº ${Math.floor(100 + Math.random() * 900)}/2026-${cpa}`,
+      eventName: nomeEvento.trim(),
       serviceDate: dataEvento || new Date().toISOString().split('T')[0],
-      startTime: horario,
+      startTime: horario.trim() || '20h às 02h',
       officersCount: numEfetivo,
       joesPerOfficer: 1,
       unitValue: numValorUnit,
       totalValue: totalVal,
       status: operationToEdit?.status || 'APROVADO',
       serviceOrderLink: '',
-      justification: justificativa,
+      justification: justificativa.trim(),
       authorizeExcess: autorizarExcedente,
       createdBy: currentUser.name,
       createdAt: operationToEdit?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    onSave(opData);
+    setIsSubmitting(true);
+    setStatusMessage(null);
+
+    try {
+      const result = await onSave(opData);
+
+      // Check if explicitly marked as failed on database cloud sync
+      if (result && typeof result === 'object' && result.syncedWithCloud === false) {
+        setIsSubmitting(false);
+        setStatusMessage({
+          type: 'error',
+          text: 'Erro ao salvar no banco de dados',
+          details: result.dbError || 'O banco de dados não confirmou a persistência deste lançamento. Verifique a conexão com o Supabase.',
+        });
+        return;
+      }
+
+      // Confirmed saved to Database
+      setStatusMessage({
+        type: 'success',
+        text: 'Salvo com sucesso no Banco de Dados!',
+        details: `A solicitação de JOE para "${opData.eventName}" (R$ ${opData.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) foi gravada com sucesso no Supabase.`,
+      });
+      setIsSubmitting(false);
+    } catch (err: any) {
+      setIsSubmitting(false);
+      setStatusMessage({
+        type: 'error',
+        text: 'Erro ao salvar no banco de dados',
+        details: err?.message || 'Falha ao estabelecer conexão com o banco de dados. Tente novamente.',
+      });
+    }
   };
 
   return (
@@ -331,19 +373,104 @@ export function CreateJoeView({
           </label>
         </div>
 
+        {/* Status Message: Conditionally rendered only after database response */}
+        {statusMessage && (
+          <div
+            className={`p-4 sm:p-5 rounded-2xl border-2 transition-all ${
+              statusMessage.type === 'success'
+                ? 'bg-emerald-50/90 border-emerald-500 text-emerald-950 shadow-xs'
+                : 'bg-rose-50/90 border-rose-500 text-rose-950 shadow-xs'
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className={`p-2 rounded-xl text-white shrink-0 mt-0.5 ${
+                  statusMessage.type === 'success' ? 'bg-emerald-600' : 'bg-rose-600'
+                }`}
+              >
+                {statusMessage.type === 'success' ? (
+                  <CheckCircle2 className="w-5 h-5" />
+                ) : (
+                  <ShieldAlert className="w-5 h-5" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className={`text-base font-black ${statusMessage.type === 'success' ? 'text-emerald-900' : 'text-rose-900'}`}>
+                    {statusMessage.text}
+                  </h4>
+                  <span
+                    className={`text-[11px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 ${
+                      statusMessage.type === 'success'
+                        ? 'bg-emerald-200/80 text-emerald-800'
+                        : 'bg-rose-200/80 text-rose-800'
+                    }`}
+                  >
+                    <Database className="w-3 h-3" />
+                    {statusMessage.type === 'success' ? 'PERSISTÊNCIA SUPABASE OK' : 'ERRO NO BANCO'}
+                  </span>
+                </div>
+                {statusMessage.details && (
+                  <p className={`text-xs sm:text-sm mt-1.5 leading-relaxed ${statusMessage.type === 'success' ? 'text-emerald-800' : 'text-rose-800 font-mono bg-white/70 p-2.5 rounded-lg border border-rose-200'}`}>
+                    {statusMessage.details}
+                  </p>
+                )}
+
+                {/* Quick actions on Success */}
+                {statusMessage.type === 'success' && (
+                  <div className="flex items-center gap-2.5 mt-3 pt-3 border-t border-emerald-200/70 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={onCancel}
+                      className="px-3.5 py-1.5 rounded-xl bg-[#002D5A] hover:bg-[#001F3F] text-white text-xs font-bold shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-[#7EC2E8]" />
+                      <span>Ver Lista de Lançamentos</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNomeEvento('');
+                        setJustificativa('');
+                        setOrdemServico('');
+                        setStatusMessage(null);
+                      }}
+                      className="px-3.5 py-1.5 rounded-xl bg-white hover:bg-emerald-100/50 text-emerald-900 border border-emerald-300 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                    >
+                      <PlusCircle className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>Fazer Outro Lançamento</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Action Buttons: Lançar JOE | Cancelar */}
         <div className="flex items-center gap-3 pt-5 border-t border-slate-100">
           <button
             type="submit"
-            className="bg-[#002D5A] hover:bg-[#001F3F] text-white font-bold text-sm px-6 py-3 rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-98"
+            disabled={isSubmitting}
+            className="bg-[#002D5A] hover:bg-[#001F3F] text-white font-bold text-sm px-6 py-3 rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-98 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {operationToEdit ? <Save className="w-4.5 h-4.5" /> : <PlusCircle className="w-4.5 h-4.5 text-[#7EC2E8]" />}
-            <span>{operationToEdit ? 'Salvar Alterações' : 'Confirmar Lançamento de JOE'}</span>
+            {isSubmitting ? (
+              <>
+                <div className="w-4.5 h-4.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span>Salvando no Banco de Dados...</span>
+              </>
+            ) : (
+              <>
+                {operationToEdit ? <Save className="w-4.5 h-4.5" /> : <PlusCircle className="w-4.5 h-4.5 text-[#7EC2E8]" />}
+                <span>{operationToEdit ? 'Salvar Alterações' : 'Confirmar Lançamento de JOE'}</span>
+              </>
+            )}
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold text-sm px-5 py-3 rounded-xl transition-all flex items-center gap-2 cursor-pointer"
+            disabled={isSubmitting}
+            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold text-sm px-5 py-3 rounded-xl transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
           >
             <X className="w-4.5 h-4.5 text-slate-400" />
             <span>Cancelar</span>
