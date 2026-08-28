@@ -11,6 +11,11 @@ import {
 } from 'lucide-react';
 import { CommandBudget, CommandUnit, OrdinancePeriod, OperationLaunch, User } from '../../types';
 import { formatCurrencyBRL, formatInteger, formatAccountingNumber, parseBRLInput } from '../../utils/formatters';
+import {
+  normalizeCommandName,
+  sortCommandsByOfficialOrder,
+  getCommandOrderIndex,
+} from '../../utils/commandUtils';
 
 interface CeilingsViewProps {
   ordinance: OrdinancePeriod;
@@ -50,7 +55,7 @@ export function CeilingsView({
     const ordOps = operations.filter((o) => o.ordinanceId === ordinance.id);
 
     const defaultCotas: Record<string, { joes: number; amount: number }> = {
-      'CPI - Direção Setorial': { joes: 30, amount: 10500 },
+      'CPI': { joes: 30, amount: 10500 },
       'CPA/I-1': { joes: 186, amount: 65100 },
       'CPA/I-2': { joes: 186, amount: 65100 },
       'CPA/I-3': { joes: 300, amount: 105000 },
@@ -63,26 +68,27 @@ export function CeilingsView({
     };
 
     const initialRows: EditableBudgetRow[] = commands.map((cmd) => {
+      const normCode = normalizeCommandName(cmd.code || cmd.id || cmd.name);
       const existingBgt = budgets.find(
-        (b) => b.commandId === cmd.code || b.commandId === cmd.name || b.commandId === cmd.id
+        (b) => normalizeCommandName(b.commandId) === normCode
       );
 
-      const defaultData = defaultCotas[cmd.code] || defaultCotas[cmd.name] || { joes: 186, amount: 65100 };
+      const defaultData = defaultCotas[normCode] || { joes: 186, amount: 65100 };
 
       const plannedJoes = existingBgt ? existingBgt.plannedJoes : defaultData.joes;
       const budgetAmount = existingBgt ? existingBgt.budgetAmount : defaultData.amount;
 
       const cmdOps = ordOps.filter(
-        (o) => o.commandId === cmd.code || o.commandId === cmd.name || o.commandId === cmd.id
+        (o) => normalizeCommandName(o.commandId) === normCode
       );
       const launchedJoes = cmdOps.reduce((sum, o) => sum + (o.officersCount || 0), 0);
       const launchedMoney = cmdOps.reduce((sum, o) => sum + (o.totalValue || 0), 0);
 
       return {
-        commandId: cmd.code,
-        code: cmd.code,
-        name: cmd.name,
-        subunits: cmd.subunits || [cmd.name],
+        commandId: normCode,
+        code: normCode,
+        name: normCode === 'CPI' ? 'CPI' : normCode,
+        subunits: cmd.subunits || [normCode],
         plannedJoes,
         budgetAmount,
         displayAmount: formatAccountingNumber(budgetAmount),
@@ -91,7 +97,7 @@ export function CeilingsView({
       };
     });
 
-    setRows(initialRows);
+    setRows(sortCommandsByOfficialOrder(initialRows, (r) => r.commandId));
   }, [budgets, commands, operations, ordinance.id]);
 
   // Handle change in JOEs quantity

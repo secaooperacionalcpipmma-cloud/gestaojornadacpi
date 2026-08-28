@@ -10,19 +10,27 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { CommandBudget } from '../../types';
-import { getCommandOrderIndex } from './UnitSpendingChart';
+import {
+  getCommandOrderIndex,
+  normalizeCommandName,
+  sortCommandsByOfficialOrder,
+} from '../../utils/commandUtils';
 
 interface BudgetChartProps {
   budgets: CommandBudget[];
 }
 
 export const BudgetChart: React.FC<BudgetChartProps> = ({ budgets }) => {
-  const sortedBudgets = [...budgets].sort(
-    (a, b) => getCommandOrderIndex(a.commandId) - getCommandOrderIndex(b.commandId)
+  const sortedBudgets = sortCommandsByOfficialOrder<CommandBudget>(
+    budgets.map((b) => ({
+      ...b,
+      commandId: normalizeCommandName(b.commandId),
+    })),
+    (b) => b.commandId
   );
 
   const chartData = sortedBudgets.map((b) => ({
-    name: b.commandId.startsWith('CPI') ? 'CPI' : b.commandId,
+    name: normalizeCommandName(b.commandId),
     Orçado: b.budgetAmount,
     Gasto: b.committedAmount + b.executedAmount,
     Saldo: Math.max(0, b.availableBalance),

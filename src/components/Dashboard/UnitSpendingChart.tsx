@@ -16,21 +16,13 @@ import {
 import { CommandUnit, CommandBudget, OperationLaunch, OrdinancePeriod } from '../../types';
 import { formatCurrencyBRL, formatInteger } from '../../utils/formatters';
 import { CommandBadge } from '../common/CommandBadge';
+import {
+  getCommandOrderIndex,
+  normalizeCommandName,
+  sortCommandsByOfficialOrder,
+} from '../../utils/commandUtils';
 
-export const getCommandOrderIndex = (codeOrId: string = '') => {
-  const norm = String(codeOrId || '').toUpperCase().trim();
-  if (norm === 'CPI' || norm.startsWith('CPI') || norm.includes('DIREÇÃO') || norm.includes('DIRECAO') || norm.includes('SETORIAL')) return 0;
-  if (norm.includes('CPA/I-1') || norm.includes('CPAI-1') || norm === 'CPA-1' || norm.includes('CPA/I 1')) return 1;
-  if (norm.includes('CPA/I-2') || norm.includes('CPAI-2') || norm === 'CPA-2' || norm.includes('CPA/I 2')) return 2;
-  if (norm.includes('CPA/I-3') || norm.includes('CPAI-3') || norm === 'CPA-3' || norm.includes('CPA/I 3')) return 3;
-  if (norm.includes('CPA/I-4') || norm.includes('CPAI-4') || norm === 'CPA-4' || norm.includes('CPA/I 4')) return 4;
-  if (norm.includes('CPA/I-5') || norm.includes('CPAI-5') || norm === 'CPA-5' || norm.includes('CPA/I 5')) return 5;
-  if (norm.includes('CPA/I-6') || norm.includes('CPAI-6') || norm === 'CPA-6' || norm.includes('CPA/I 6')) return 6;
-  if (norm.includes('CPA/I-7') || norm.includes('CPAI-7') || norm === 'CPA-7' || norm.includes('CPA/I 7')) return 7;
-  if (norm.includes('CPA/I-8') || norm.includes('CPAI-8') || norm === 'CPA-8' || norm.includes('CPA/I 8')) return 8;
-  if (norm.includes('CPA/I-9') || norm.includes('CPAI-9') || norm === 'CPA-9' || norm.includes('CPA/I 9')) return 9;
-  return 99;
-};
+export { getCommandOrderIndex };
 
 interface UnitSpendingChartProps {
   commands: CommandUnit[];
@@ -69,12 +61,13 @@ export function UnitSpendingChart({
     const unitValue = ordinance.unitValueJoe || 350;
 
     const list = commands.map((cmd) => {
-      const bgt = budgets.find((b) => b.commandId === cmd.code || b.commandId === cmd.id);
+      const normCode = normalizeCommandName(cmd.code || cmd.id || cmd.name);
+      const bgt = budgets.find((b) => normalizeCommandName(b.commandId) === normCode);
       const cmdOps = currentOps.filter(
-        (o) => o.commandId === cmd.code || o.commandId === cmd.name || o.commandId?.includes(cmd.id)
+        (o) => normalizeCommandName(o.commandId) === normCode
       );
 
-      const plannedJoes = bgt ? bgt.plannedJoes : 186;
+      const plannedJoes = bgt ? bgt.plannedJoes : normCode === 'CPI' ? 30 : 186;
       const plannedBudget = bgt ? bgt.budgetAmount : plannedJoes * unitValue;
       const executedAmount = cmdOps.reduce((sum, o) => sum + (o.totalValue || 0), 0);
       const executedJoes = cmdOps.reduce((sum, o) => sum + (o.officersCount || 0), 0);
@@ -83,14 +76,11 @@ export function UnitSpendingChart({
       const percentSpent = plannedBudget > 0 ? (executedAmount / plannedBudget) * 100 : 0;
       const balance = Math.max(0, plannedBudget - executedAmount);
 
-      const isCpi = cmd.id === 'CPI' || cmd.code.startsWith('CPI');
-      const displayLabel = isCpi ? 'CPI' : cmd.code;
-
       return {
-        id: cmd.id,
-        code: displayLabel,
-        rawCode: cmd.code,
-        name: cmd.name,
+        id: normCode,
+        code: normCode,
+        rawCode: normCode,
+        name: normCode === 'CPI' ? 'CPI' : normCode,
         headquarters: cmd.headquarters,
         subunitsCount: cmd.subunits?.length || 0,
         plannedBudget,
@@ -105,12 +95,13 @@ export function UnitSpendingChart({
     // Filter
     let filtered = list;
     if (selectedCpaFilter !== 'ALL') {
-      filtered = filtered.filter((c) => c.rawCode === selectedCpaFilter || c.code === selectedCpaFilter || c.id === selectedCpaFilter);
+      const normFilter = normalizeCommandName(selectedCpaFilter);
+      filtered = filtered.filter((c) => normalizeCommandName(c.code) === normFilter);
     }
 
     // Sort
     if (sortBy === 'ORDER') {
-      filtered.sort((a, b) => getCommandOrderIndex(a.rawCode || a.id) - getCommandOrderIndex(b.rawCode || b.id));
+      filtered = sortCommandsByOfficialOrder(filtered, (c) => c.code);
     } else if (sortBy === 'PERCENT_DESC') {
       filtered.sort((a, b) => b.percentSpent - a.percentSpent);
     } else if (sortBy === 'PERCENT_ASC') {
@@ -281,11 +272,11 @@ export function UnitSpendingChart({
               className="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-slate-800 font-semibold focus:outline-hidden focus:ring-2 focus:ring-[#7EC2E8]"
             >
               <option value="ALL">Todos os Comandos (CPI, CPA/I-1 a CPA/I-9)</option>
-              {commands.map((c) => {
-                const isCpi = c.id === 'CPI' || c.code.startsWith('CPI');
+              {sortCommandsByOfficialOrder(commands, (c) => c.code).map((c) => {
+                const normCode = normalizeCommandName(c.code || c.id || c.name);
                 return (
-                  <option key={c.id} value={c.code}>
-                    {isCpi ? 'CPI' : c.code}
+                  <option key={c.id || normCode} value={normCode}>
+                    {normCode}
                   </option>
                 );
               })}

@@ -29,6 +29,11 @@ import {
   ReportColumnConfig,
 } from '../../utils/clipboardHelper';
 import { CommandBadge } from '../common/CommandBadge';
+import {
+  normalizeCommandName,
+  sortCommandsByOfficialOrder,
+  OFFICIAL_COMMAND_CODES,
+} from '../../utils/commandUtils';
 
 interface ReportsViewProps {
   commands: CommandUnit[];
@@ -70,12 +75,16 @@ export function ReportsView({
 
   // List of standard 10 commands (CPI and CPA/I-1 to CPA/I-9)
   const commandList = useMemo(() => {
-    return commands.map((c) => ({
-      id: c.id,
-      code: c.code,
-      displayCode: formatCommandDisplay(c.code),
-      name: c.name,
-    }));
+    const sorted = sortCommandsByOfficialOrder(commands, (c) => c.code);
+    return sorted.map((c) => {
+      const norm = normalizeCommandName(c.code || c.id || c.name);
+      return {
+        id: norm,
+        code: norm,
+        displayCode: norm,
+        name: norm === 'CPI' ? 'CPI' : norm,
+      };
+    });
   }, [commands]);
 
   // Selected commands state (CPI to CPAI-9) - defaults to all 10 selected as array of string codes
@@ -264,17 +273,7 @@ export function ReportsView({
 
   // Quadro Resumo CPI Data Breakdown (Print 04)
   const quadroResumoData = useMemo(() => {
-    const standardCodes = [
-      'CPAI-1',
-      'CPAI-2',
-      'CPAI-3',
-      'CPAI-4',
-      'CPAI-5',
-      'CPAI-6',
-      'CPAI-7',
-      'CPAI-8',
-      'CPAI-9',
-    ];
+    const standardCodes = [...OFFICIAL_COMMAND_CODES];
 
     const map: Record<string, number> = {};
     standardCodes.forEach((code) => {
@@ -284,14 +283,14 @@ export function ReportsView({
     let totalGeral = 0;
 
     filteredOperations.forEach((op) => {
-      const formatted = formatCommandDisplay(op.commandId);
+      const formatted = normalizeCommandName(op.commandId);
       const val = Number(op.totalValue) || 0;
       totalGeral += val;
 
       if (map[formatted] !== undefined) {
         map[formatted] += val;
       } else {
-        const found = standardCodes.find((sc) => formatted.includes(sc.replace('CPAI-', '')));
+        const found = standardCodes.find((sc) => normalizeCommandName(formatted) === sc);
         if (found) {
           map[found] += val;
         }

@@ -8,7 +8,11 @@ import {
   Legend,
 } from 'recharts';
 import { CommandBudget } from '../../types';
-import { getCommandOrderIndex } from './UnitSpendingChart';
+import {
+  getCommandOrderIndex,
+  normalizeCommandName,
+  sortCommandsByOfficialOrder,
+} from '../../utils/commandUtils';
 
 interface DistributionChartProps {
   budgets: CommandBudget[];
@@ -28,12 +32,16 @@ const COLORS = [
 ];
 
 export const DistributionChart: React.FC<DistributionChartProps> = ({ budgets }) => {
-  const sortedBudgets = [...budgets].sort(
-    (a, b) => getCommandOrderIndex(a.commandId) - getCommandOrderIndex(b.commandId)
+  const sortedBudgets = sortCommandsByOfficialOrder<CommandBudget>(
+    budgets.map((b) => ({
+      ...b,
+      commandId: normalizeCommandName(b.commandId),
+    })),
+    (b) => b.commandId
   );
 
   const data = sortedBudgets.map((b) => ({
-    name: b.commandId.startsWith('CPI') ? 'CPI' : b.commandId,
+    name: normalizeCommandName(b.commandId),
     value: b.committedAmount + b.executedAmount || 1, // small fallback for chart display
     actualSpent: b.committedAmount + b.executedAmount,
   }));

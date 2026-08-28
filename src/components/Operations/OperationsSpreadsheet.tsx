@@ -33,6 +33,10 @@ import { pdfService } from '../../services/pdfService';
 import { excelService, formatCommandDisplay } from '../../services/excelService';
 import { copyFormattedHtmlToClipboard, buildDetailedTableHtml, ReportColumnConfig } from '../../utils/clipboardHelper';
 import { formatCurrencyBRL, formatInteger } from '../../utils/formatters';
+import {
+  normalizeCommandName,
+  sortCommandsByOfficialOrder,
+} from '../../utils/commandUtils';
 
 interface OperationsSpreadsheetProps {
   operations: OperationLaunch[];
@@ -79,12 +83,12 @@ export const OperationsSpreadsheet: React.FC<OperationsSpreadsheetProps> = ({
       if (op.ordinanceId !== ordinance.id) return false;
 
       // Role restriction: If CPA_GESTOR, restricted to their commandId
-      if (currentUser.role === 'CPA_GESTOR' && currentUser.commandId && op.commandId !== currentUser.commandId) {
+      if (currentUser.role === 'CPA_GESTOR' && currentUser.commandId && normalizeCommandName(op.commandId) !== normalizeCommandName(currentUser.commandId)) {
         return false;
       }
 
       // CPA Filter
-      if (cpaFilter !== 'ALL' && op.commandId !== cpaFilter) return false;
+      if (cpaFilter !== 'ALL' && normalizeCommandName(op.commandId) !== normalizeCommandName(cpaFilter)) return false;
 
       // Status Filter
       if (statusFilter !== 'ALL' && op.status !== statusFilter) return false;
@@ -339,12 +343,15 @@ export const OperationsSpreadsheet: React.FC<OperationsSpreadsheetProps> = ({
             onChange={(e) => setCpaFilter(e.target.value)}
             className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-hidden focus:border-[#00204A]"
           >
-            <option value="ALL">Todos os Comandos (CPA/I-1 a 9)</option>
-            {commands.map((cmd) => (
-              <option key={cmd.id} value={cmd.code}>
-                {cmd.code}
-              </option>
-            ))}
+            <option value="ALL">Todos os Comandos (CPI, CPA/I-1 a CPA/I-9)</option>
+            {sortCommandsByOfficialOrder<CommandUnit>(commands, (c) => c.code).map((cmd) => {
+              const norm = normalizeCommandName(cmd.code || cmd.id || cmd.name);
+              return (
+                <option key={cmd.id || norm} value={norm}>
+                  {norm}
+                </option>
+              );
+            })}
           </select>
         </div>
 

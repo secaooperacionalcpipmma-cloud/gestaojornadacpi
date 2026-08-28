@@ -16,6 +16,11 @@ import {
 } from 'lucide-react';
 import { CommandUnit, OperationLaunch, OrdinancePeriod } from '../../types';
 import { formatCurrencyBRL, formatInteger, formatDateBRL, formatDateTimeBRL } from '../../utils/formatters';
+import {
+  normalizeCommandName,
+  sortCommandsByOfficialOrder,
+  getCommandOrderIndex,
+} from '../../utils/commandUtils';
 
 interface OperationsListViewProps {
   operations: OperationLaunch[];
@@ -180,11 +185,14 @@ export function OperationsListView({
               className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#7EC2E8] focus:border-[#002D5A] transition-all"
             >
               <option value="">Todos os comandos</option>
-              {commands.map((cmd) => (
-                <option key={cmd.id} value={cmd.code}>
-                  {cmd.code}
-                </option>
-              ))}
+              {sortCommandsByOfficialOrder(commands, (c) => c.code).map((cmd) => {
+                const norm = normalizeCommandName(cmd.code || cmd.id || cmd.name);
+                return (
+                  <option key={cmd.id || norm} value={norm}>
+                    {norm}
+                  </option>
+                );
+              })}
             </select>
           </div>
 

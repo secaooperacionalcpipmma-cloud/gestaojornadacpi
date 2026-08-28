@@ -11,6 +11,11 @@ import {
 } from '../types/auditTypes';
 import { OrdinancePeriod, CommandUnit } from '../types';
 import { formatCurrencyBRL } from '../utils/formatters';
+import {
+  normalizeCommandName,
+  getCommandOrderIndex,
+  OFFICIAL_COMMAND_CODES,
+} from '../utils/commandUtils';
 
 export const AUDIT_DOCUMENT_DEFINITIONS: {
   type: AuditDocumentType;
@@ -1049,12 +1054,9 @@ Valor Total: R$ 8.000,00 (Calculado com R$ 400 em vez de R$ 350)`,
 // MULTI-UNIT AUDIT ENGINE (BATCH PROCESSING & ASCENDING ORDER)
 // -------------------------------------------------------------
 
-// Helper to extract numerical order from Command Unit Code (e.g. CPA/I-1 -> 1, CPA/I-9 -> 9, CPI -> 10)
+// Helper to extract numerical order from Command Unit Code (CPI -> 0, CPA/I-1 -> 1 ... CPA/I-9 -> 9)
 export function getCommandSortOrder(code: string): number {
-  if (code === 'CPI' || code.includes('CPI')) return 10;
-  const match = code.match(/CPA\/I-(\d+)/i) || code.match(/CPA-I\/(\d+)/i) || code.match(/(\d+)/);
-  if (match) return parseInt(match[1], 10);
-  return 99;
+  return getCommandOrderIndex(code);
 }
 
 // Full suite of simulated realistic documents for all CPAs (CPA/I-1 to CPA/I-9 + CPI)

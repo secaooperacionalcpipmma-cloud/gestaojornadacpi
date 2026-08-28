@@ -1,37 +1,24 @@
 import ExcelJS from 'exceljs';
 import { OperationLaunch, CommandBudget, OrdinancePeriod, CommandUnit } from '../types';
 import { formatCurrencyBRL } from '../utils/formatters';
+import {
+  normalizeCommandName,
+  getCommandOrderIndex,
+  OFFICIAL_COMMAND_CODES,
+} from '../utils/commandUtils';
 
-// Format command display string (e.g. CPA/I-2 -> CPAI-2)
+// Format command display string (e.g. CPI, CPA/I-1 ... CPA/I-9)
 export function formatCommandDisplay(cmdCode: string): string {
   if (!cmdCode) return '';
-  if (cmdCode.includes('CPI') && !cmdCode.includes('CPA')) return 'CPI';
-  return cmdCode.replace('CPA/I-', 'CPAI-').replace('CPA/I', 'CPAI');
+  return normalizeCommandName(cmdCode);
 }
 
-// Helper to determine sort rank: CPI first (0), then CPAI-1 to CPAI-9 (1 to 9), then others
+// Helper to determine sort rank: CPI first (0), then CPA/I-1 to CPA/I-9 (1 to 9), then others
 export function getCommandSortRank(commandId: string): number {
-  if (!commandId) return 99;
-  const formatted = formatCommandDisplay(commandId).toUpperCase().trim();
-  if (formatted === 'CPI' || (formatted.includes('CPI') && !formatted.includes('CPA'))) {
-    return 0;
-  }
-  for (let i = 1; i <= 9; i++) {
-    if (
-      formatted === `CPAI-${i}` ||
-      formatted === `CPA/I-${i}` ||
-      formatted.includes(`CPAI-${i}`) ||
-      formatted.includes(`CPA/I-${i}`) ||
-      formatted.includes(`CPA I-${i}`) ||
-      formatted.includes(`CPAI${i}`)
-    ) {
-      return i;
-    }
-  }
-  return 99;
+  return getCommandOrderIndex(commandId);
 }
 
-// Function to sort operations in official ascending order: CPI -> CPAI-1 to CPAI-9
+// Function to sort operations in official ascending order: CPI -> CPA/I-1 to CPA/I-9
 export function sortOperationsOfficial(ops: OperationLaunch[]): OperationLaunch[] {
   return [...ops].sort((a, b) => {
     const rankA = getCommandSortRank(a.commandId);
@@ -85,18 +72,8 @@ export const excelService = {
       views: [{ showGridLines: true }],
     });
 
-    // Standard list CPAI-1 to CPAI-9
-    const standardCodes = [
-      'CPAI-1',
-      'CPAI-2',
-      'CPAI-3',
-      'CPAI-4',
-      'CPAI-5',
-      'CPAI-6',
-      'CPAI-7',
-      'CPAI-8',
-      'CPAI-9',
-    ];
+    // Standard official list CPI, CPA/I-1 to CPA/I-9
+    const standardCodes = [...OFFICIAL_COMMAND_CODES];
 
     const sumMap: Record<string, number> = {};
     standardCodes.forEach((code) => {
@@ -105,13 +82,13 @@ export const excelService = {
 
     let totalGeral = 0;
     operations.forEach((op) => {
-      const formatted = formatCommandDisplay(op.commandId);
+      const formatted = normalizeCommandName(op.commandId);
       const val = Number(op.totalValue) || 0;
       totalGeral += val;
       if (sumMap[formatted] !== undefined) {
         sumMap[formatted] += val;
       } else {
-        const match = standardCodes.find((sc) => formatted.includes(sc.replace('CPAI-', '')));
+        const match = standardCodes.find((sc) => normalizeCommandName(formatted) === sc);
         if (match) {
           sumMap[match] += val;
         }

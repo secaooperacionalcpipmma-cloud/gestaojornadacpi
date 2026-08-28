@@ -15,6 +15,10 @@ import {
 import { CommandBudget, CommandUnit, OrdinancePeriod, User } from '../../types';
 import { pdfService } from '../../services/pdfService';
 import { excelService } from '../../services/excelService';
+import {
+  normalizeCommandName,
+  sortCommandsByOfficialOrder,
+} from '../../utils/commandUtils';
 
 interface BudgetManagementProps {
   budgets: CommandBudget[];
@@ -35,6 +39,14 @@ export const BudgetManagement: React.FC<BudgetManagementProps> = ({
   const [newBudgetAmount, setNewBudgetAmount] = useState<number>(0);
   const [newPlannedJoes, setNewPlannedJoes] = useState<number>(0);
   const [reason, setReason] = useState<string>('');
+
+  const sortedBudgets = sortCommandsByOfficialOrder<CommandBudget>(
+    budgets.map((b) => ({
+      ...b,
+      commandId: normalizeCommandName(b.commandId),
+    })),
+    (b) => b.commandId
+  );
 
   const totalBudget = budgets.reduce((s, b) => s + b.budgetAmount, 0);
   const totalCommitted = budgets.reduce((s, b) => s + b.committedAmount, 0);
@@ -156,8 +168,8 @@ export const BudgetManagement: React.FC<BudgetManagementProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {budgets.map((b) => {
-                const cmd = commands.find((c) => c.code === b.commandId);
+              {sortedBudgets.map((b) => {
+                const cmd = commands.find((c) => normalizeCommandName(c.code) === b.commandId);
                 const spent = b.committedAmount + b.executedAmount;
                 const pct = (spent / (b.budgetAmount || 1)) * 100;
                 const isCritical = pct > 95 || b.availableBalance <= 0;

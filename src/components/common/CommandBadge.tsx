@@ -1,4 +1,5 @@
 import React from 'react';
+import { normalizeCommandName } from '../../utils/commandUtils';
 
 interface CommandBadgeProps {
   commandCode: string;
@@ -13,8 +14,8 @@ export function CommandBadge({
   className = '',
   showBorder = true,
 }: CommandBadgeProps) {
-  // Normalize command identifier
-  const code = (commandCode || '').toUpperCase().trim();
+  // Normalize command identifier strictly
+  const code = normalizeCommandName(commandCode);
 
   // Size mapping
   const sizeClasses = {
@@ -30,7 +31,7 @@ export function CommandBadge({
   // Render specific SVG shield for each unit according to official PMMA attachments
   const renderBadgeSvg = () => {
     // 1. CPI - Direção Setorial (Anexo 02)
-    if (code.includes('CPI') && !code.includes('CPA')) {
+    if (code === 'CPI' || (code.includes('CPI') && !code.includes('CPA'))) {
       return (
         <svg viewBox="0 0 100 120" className="w-full h-full drop-shadow-xs" aria-label="Brasão CPI">
           <defs>

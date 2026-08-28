@@ -22,6 +22,11 @@ import {
   INITIAL_AUDIT_LOGS,
 } from '../data/initialData';
 import { supabaseService } from './supabaseService';
+import {
+  normalizeCommandName,
+  sortCommandsByOfficialOrder,
+  getCommandOrderIndex,
+} from '../utils/commandUtils';
 
 const STORAGE_KEYS = {
   USERS: 'cpi_pmma_prod_clean_users',
@@ -573,7 +578,17 @@ class StorageService {
 
   // Commands
   getCommands(): CommandUnit[] {
-    return this.get(STORAGE_KEYS.COMMANDS, INITIAL_COMMANDS);
+    const raw = this.get(STORAGE_KEYS.COMMANDS, INITIAL_COMMANDS);
+    const normalized = raw.map((c) => {
+      const code = normalizeCommandName(c.code || c.id || c.name);
+      return {
+        ...c,
+        id: code,
+        code: code,
+        name: code === 'CPI' ? 'CPI' : code,
+      };
+    });
+    return sortCommandsByOfficialOrder(normalized, (c) => c.code);
   }
 
   // Ordinances
@@ -625,10 +640,10 @@ class StorageService {
       }
 
       commands.forEach((cmd) => {
-        const matchingSource = sourceBudgets.find((b) => b.commandId === cmd.code || b.commandId === cmd.id);
+        const matchingSource = sourceBudgets.find((b) => normalizeCommandName(b.commandId) === cmd.code);
         const joes = matchingSource
           ? matchingSource.plannedJoes
-          : cmd.code.includes('CPI')
+          : cmd.code === 'CPI'
           ? 30
           : cmd.code.includes('3')
           ? 300
@@ -642,7 +657,7 @@ class StorageService {
 
         const bAmount = joes * (ordinance.unitValueJoe || 350);
         budgets.push({
-          id: `bgt-${ordinance.id}-${cmd.id.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+          id: `bgt-${ordinance.id}-${cmd.code.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
           ordinanceId: ordinance.id,
           commandId: cmd.code,
           plannedJoes: joes,
@@ -670,21 +685,26 @@ class StorageService {
 
   // Budgets / Ceilings
   getBudgets(ordinanceId?: string): CommandBudget[] {
-    const budgets = this.get(STORAGE_KEYS.BUDGETS, INITIAL_BUDGETS);
-    if (ordinanceId) {
-      return budgets.filter((b) => b.ordinanceId === ordinanceId);
-    }
-    return budgets;
+    const rawBudgets = this.get(STORAGE_KEYS.BUDGETS, INITIAL_BUDGETS);
+    const normalized = rawBudgets.map((b) => ({
+      ...b,
+      commandId: normalizeCommandName(b.commandId),
+    }));
+    const filtered = ordinanceId
+      ? normalized.filter((b) => b.ordinanceId === ordinanceId)
+      : normalized;
+    return sortCommandsByOfficialOrder(filtered, (b) => b.commandId);
   }
 
   updateBudget(budget: CommandBudget, user: User, reason?: string): void {
     const budgets = this.getBudgets();
-    const index = budgets.findIndex((b) => b.id === budget.id || (b.commandId === budget.commandId && b.ordinanceId === budget.ordinanceId));
+    const normCommandId = normalizeCommandName(budget.commandId);
+    const index = budgets.findIndex((b) => b.id === budget.id || (normalizeCommandName(b.commandId) === normCommandId && b.ordinanceId === budget.ordinanceId));
     if (index >= 0) {
-      const prev = budgets[index];
       budgets[index] = {
         ...budgets[index],
         ...budget,
+        commandId: normCommandId,
         availableBalance: budget.budgetAmount - (budgets[index].committedAmount + budgets[index].executedAmount),
       };
       this.set(STORAGE_KEYS.BUDGETS, budgets);
@@ -694,8 +714,8 @@ class StorageService {
         userName: user.name,
         userRole: user.role,
         action: 'editar',
-        recordId: `tetos #${budget.commandId}`,
-        description: `Ajuste de cota do ${budget.commandId}: ${budget.plannedJoes} JOEs (R$ ${budget.budgetAmount.toFixed(2)}). ${reason || ''}`,
+        recordId: `tetos #${normCommandId}`,
+        description: `Ajuste de cota do ${normCommandId}: ${budget.plannedJoes} JOEs (R$ ${budget.budgetAmount.toFixed(2)}). ${reason || ''}`,
         ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
       });
     }
@@ -707,10 +727,14 @@ class StorageService {
 
     const merged = [
       ...otherBudgets,
-      ...updatedBudgets.map((b) => ({
-        ...b,
-        availableBalance: b.budgetAmount - (b.committedAmount + b.executedAmount),
-      })),
+      ...updatedBudgets.map((b) => {
+        const normCode = normalizeCommandName(b.commandId);
+        return {
+          ...b,
+          commandId: normCode,
+          availableBalance: b.budgetAmount - (b.committedAmount + b.executedAmount),
+        };
+      }),
     ];
     this.set(STORAGE_KEYS.BUDGETS, merged);
     supabaseService.upsertBudgets(updatedBudgets).catch(console.warn);
@@ -732,17 +756,19 @@ class StorageService {
 
     const updatedBudgets = budgets.map((b) => {
       if (b.ordinanceId !== ordinanceId) return b;
+      const normBudgetCmd = normalizeCommandName(b.commandId);
 
       const cmdOps = operations.filter(
-        (op) => op.commandId === b.commandId || op.commandId === b.commandId.replace(' - Direção Setorial', '')
+        (op) => normalizeCommandName(op.commandId) === normBudgetCmd
       );
 
-      const executedAmount = cmdOps.reduce((sum, o) => sum + o.totalValue, 0);
-      const usedJoesCount = cmdOps.reduce((sum, o) => sum + o.officersCount, 0);
+      const executedAmount = cmdOps.reduce((sum, o) => sum + (o.totalValue || 0), 0);
+      const usedJoesCount = cmdOps.reduce((sum, o) => sum + (o.officersCount || 0), 0);
       const availableBalance = Math.max(0, b.budgetAmount - executedAmount);
 
       return {
         ...b,
+        commandId: normBudgetCmd,
         committedAmount: 0,
         executedAmount,
         availableBalance,

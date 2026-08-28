@@ -159,10 +159,10 @@ export const INITIAL_USERS: User[] = [
 export const INITIAL_COMMANDS: CommandUnit[] = [
   {
     id: 'CPI',
-    code: 'CPI - Direção Setorial',
-    name: 'CPI - Direção Setorial',
-    headquarters: '',
-    subunits: ['CPI - Direção Setorial'],
+    code: 'CPI',
+    name: 'CPI',
+    headquarters: 'São Luís',
+    subunits: ['CPI (Direção Setorial)', 'Gabinete CPI', 'Seção Operacional CPI'],
     commanderName: 'Cel. Roberto Silva',
     commanderRank: 'Cel PM',
     active: true,
@@ -171,7 +171,7 @@ export const INITIAL_COMMANDS: CommandUnit[] = [
     id: 'CPA/I-1',
     code: 'CPA/I-1',
     name: 'CPA/I-1',
-    headquarters: '',
+    headquarters: 'Bacabal',
     subunits: ['CPA/I-1 (Direção)', '15º BPM', '19º BPM', '23º BPM', '39º BPM'],
     commanderName: 'Ten-Cel. Marcos Vinícius',
     commanderRank: 'Ten-Cel PM',
@@ -295,7 +295,7 @@ export const INITIAL_BUDGETS: CommandBudget[] = [
   {
     id: 'bgt-cpi',
     ordinanceId: 'ord-122-2026',
-    commandId: 'CPI - Direção Setorial',
+    commandId: 'CPI',
     plannedJoes: 30,
     budgetAmount: 10500.0,
     committedAmount: 0,

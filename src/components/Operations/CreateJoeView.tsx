@@ -18,6 +18,10 @@ import {
 } from 'lucide-react';
 import { CommandUnit, OrdinancePeriod, OperationLaunch, User } from '../../types';
 import { formatCurrencyBRL, formatInteger } from '../../utils/formatters';
+import {
+  normalizeCommandName,
+  sortCommandsByOfficialOrder,
+} from '../../utils/commandUtils';
 
 interface CreateJoeViewProps {
   commands: CommandUnit[];
@@ -81,7 +85,9 @@ export function CreateJoeView({
   } | null>(null);
 
   // Available subunits based on selected CPA/I
-  const selectedCommand = commands.find((c) => c.code === cpa || c.name === cpa || c.id === cpa);
+  const selectedCommand = commands.find(
+    (c) => normalizeCommandName(c.code) === normalizeCommandName(cpa) || normalizeCommandName(c.name) === normalizeCommandName(cpa) || normalizeCommandName(c.id) === normalizeCommandName(cpa)
+  );
   const availableSubunits = selectedCommand ? selectedCommand.subunits : [];
 
   useEffect(() => {
@@ -105,6 +111,7 @@ export function CreateJoeView({
       return;
     }
 
+    const normCpa = normalizeCommandName(cpa);
     const numEfetivo = Math.max(1, Number(efetivo) || 1);
     const numValorUnit = Number(valorUnitario) > 0 ? Number(valorUnitario) : (ordinance.unitValueJoe || 350);
     const totalVal = numEfetivo * numValorUnit;
@@ -112,11 +119,11 @@ export function CreateJoeView({
     const opData: OperationLaunch = {
       id: operationToEdit?.id || `op-${Date.now()}`,
       launchNumber: operationToEdit?.launchNumber || ordemServico || `${Math.floor(10000 + Math.random() * 90000)}`,
-      commandId: cpa,
+      commandId: normCpa,
       subUnit: unidade,
       ordinanceId: ordinance.id || 'ord-122-2026',
       seiProcessNumber: processoSei.trim() || '2026.190110.00000',
-      orderNumber: ordemServico.trim() || `OS nº ${Math.floor(100 + Math.random() * 900)}/2026-${cpa}`,
+      orderNumber: ordemServico.trim() || `OS nº ${Math.floor(100 + Math.random() * 900)}/2026-${normCpa}`,
       eventName: nomeEvento.trim(),
       serviceDate: dataEvento || new Date().toISOString().split('T')[0],
       startTime: horario.trim() || '20h às 02h',
@@ -255,11 +262,14 @@ export function CreateJoeView({
               className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#7EC2E8] focus:border-[#002D5A] transition-all font-medium"
             >
               <option value="">Selecione o Comando...</option>
-              {commands.map((cmd) => (
-                <option key={cmd.id} value={cmd.code}>
-                  {cmd.code}
-                </option>
-              ))}
+              {sortCommandsByOfficialOrder(commands, (c) => c.code).map((cmd) => {
+                const norm = normalizeCommandName(cmd.code || cmd.id || cmd.name);
+                return (
+                  <option key={cmd.id || norm} value={norm}>
+                    {norm}
+                  </option>
+                );
+              })}
             </select>
           </div>
 

@@ -1,7 +1,11 @@
 import React from 'react';
 import { Shield, ArrowRight, CheckCircle2, AlertTriangle, AlertOctagon } from 'lucide-react';
 import { CommandBudget, CommandUnit } from '../../types';
-import { getCommandOrderIndex } from './UnitSpendingChart';
+import {
+  getCommandOrderIndex,
+  normalizeCommandName,
+  sortCommandsByOfficialOrder,
+} from '../../utils/commandUtils';
 
 interface CpaQuickCardsProps {
   budgets: CommandBudget[];
@@ -14,8 +18,12 @@ export const CpaQuickCards: React.FC<CpaQuickCardsProps> = ({
   commands,
   onSelectCpa,
 }) => {
-  const sortedBudgets = [...budgets].sort(
-    (a, b) => getCommandOrderIndex(a.commandId) - getCommandOrderIndex(b.commandId)
+  const sortedBudgets = sortCommandsByOfficialOrder<CommandBudget>(
+    budgets.map((b) => ({
+      ...b,
+      commandId: normalizeCommandName(b.commandId),
+    })),
+    (b) => b.commandId
   );
 
   return (
