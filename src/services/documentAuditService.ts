@@ -256,12 +256,14 @@ export function parseDocumentContent(
 
 // Master Audit Engine
 export function performDocumentAudit(
-  slots: AuditDocumentSlot[],
-  selectedCommandId: string,
+  slots: AuditDocumentSlot[] = [],
+  selectedCommandId: string = 'CPA/I-3',
   ordinance: OrdinancePeriod,
-  auditorUser: string
+  auditorUser: string = 'Auditor CPI'
 ): DocumentAuditResult {
-  const loadedSlots = slots.filter((s) => s.content && s.content.trim().length > 0);
+  const loadedSlots = (slots || []).filter(
+    (s) => s && typeof s.content === 'string' && s.content.trim().length > 0
+  );
   const loadedTypes = loadedSlots.map((s) => s.type);
 
   const discrepancies: AuditDiscrepancy[] = [];
@@ -285,7 +287,7 @@ export function performDocumentAudit(
     parsedDataByDoc.ORDEM_SERVICO_OPERACAO?.subUnit ||
     parsedDataByDoc.OFICIO_SOLICITACAO?.subUnit ||
     firstData.subUnit ||
-    'Não identificada';
+    'UPM / Batalhão';
 
   const serviceDate =
     parsedDataByDoc.ORDEM_SERVICO_OPERACAO?.serviceDate ||
@@ -316,7 +318,7 @@ export function performDocumentAudit(
   const unitValue =
     parsedDataByDoc.OFICIO_SOLICITACAO?.unitValue ||
     parsedDataByDoc.PLANILHA_UNICA_PAGADORIA?.unitValue ||
-    ordinance.unitValueJoe ||
+    ordinance?.unitValueJoe ||
     350;
 
   const totalAmount =

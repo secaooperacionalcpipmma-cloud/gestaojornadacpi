@@ -101,3 +101,40 @@ export function formatDateTimeBRL(dateStr: string | undefined | null): string {
   return dateStr;
 }
 
+/**
+ * Formata valor total disponibilizado no padrão do Quadro Resumo (ex: "65.100,00" ou "10.500,00")
+ */
+export function formatValorTotal(val: number | undefined | null): string {
+  if (val === undefined || val === null || isNaN(val)) return '0,00';
+  return val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * Formata valor executado no padrão do Quadro Resumo (ex: "R$ 47.250,00" ou "R$ 10.500,00")
+ */
+export function formatValorExecutado(val: number | undefined | null): string {
+  if (val === undefined || val === null || isNaN(val)) return 'R$ 0,00';
+  return `R$ ${val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Formata valor disponível no padrão do Quadro Resumo (ex: "17.850,00", "0,00" ou "-1.750,00")
+ */
+export function formatValorDisponivel(val: number | undefined | null): string {
+  if (val === undefined || val === null || isNaN(val)) return '0,00';
+  const isNeg = val < 0;
+  const abs = Math.abs(val);
+  const formatted = abs.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return isNeg ? `-${formatted}` : formatted;
+}
+
+/**
+ * Formata quantidade de JOE disponível com 2 dígitos ou sinal negativo (ex: "00", "51", "-05")
+ */
+export function formatJoeDisponivel(val: number | undefined | null): string {
+  if (val === undefined || val === null || isNaN(val) || val === 0) return '00';
+  if (val > 0) return val < 10 ? `0${val}` : `${val}`;
+  const abs = Math.abs(val);
+  return abs < 10 ? `-0${abs}` : `-${abs}`;
+}
+

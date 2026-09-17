@@ -37,6 +37,7 @@ import {
   normalizeCommandName,
   sortCommandsByOfficialOrder,
 } from '../../utils/commandUtils';
+import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 
 interface OperationsSpreadsheetProps {
   operations: OperationLaunch[];
@@ -75,6 +76,8 @@ export const OperationsSpreadsheet: React.FC<OperationsSpreadsheetProps> = ({
   const [viewMode, setViewMode] = useState<'TABLE' | 'CARDS'>('TABLE');
   const [isCopying, setIsCopying] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [pendingDeleteOp, setPendingDeleteOp] = useState<OperationLaunch | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Filtered operations
   const filteredOperations = useMemo(() => {
@@ -518,9 +521,9 @@ export const OperationsSpreadsheet: React.FC<OperationsSpreadsheetProps> = ({
                           {/* Delete */}
                           {!['CONSOLIDADO', 'ENCAMINHADO_PAGADORIA'].includes(op.status) && (
                             <button
-                              onClick={() => onDeleteOperation(op.id)}
+                              onClick={() => setPendingDeleteOp(op)}
                               title="Excluir Lançamento"
-                              className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded"
+                              className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -649,6 +652,27 @@ export const OperationsSpreadsheet: React.FC<OperationsSpreadsheetProps> = ({
           ))}
         </div>
       )}
+
+      {/* Confirmation Modal for Deletions */}
+      <DeleteConfirmationModal
+        isOpen={!!pendingDeleteOp}
+        onClose={() => {
+          if (!isDeleting) setPendingDeleteOp(null);
+        }}
+        onConfirm={async () => {
+          if (!pendingDeleteOp) return;
+          setIsDeleting(true);
+          try {
+            await onDeleteOperation(pendingDeleteOp.id);
+            setPendingDeleteOp(null);
+          } finally {
+            setIsDeleting(false);
+          }
+        }}
+        mode="SINGLE"
+        operation={pendingDeleteOp}
+        isDeleting={isDeleting}
+      />
     </div>
   );
 };

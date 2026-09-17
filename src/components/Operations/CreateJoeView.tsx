@@ -146,41 +146,35 @@ export function CreateJoeView({
     try {
       const result = await onSave(opData);
 
-      // Check if explicitly marked as failed on database cloud sync
-      if (result && typeof result === 'object' && result.syncedWithCloud === false) {
-        setIsSubmitting(false);
-        setStatusMessage({
-          type: 'error',
-          text: 'Erro ao salvar no banco de dados',
-          details: result.dbError || 'O banco de dados não confirmou a persistência deste lançamento. Verifique a conexão com o Supabase.',
-        });
-        return;
-      }
+      const isSynced = Boolean(result && typeof result === 'object' && result.syncedWithCloud);
 
-      // Confirmed saved to Database
+      // Confirmed saved
       setStatusMessage({
         type: 'success',
-        text: 'Salvo com sucesso no Banco de Dados!',
-        details: `A solicitação de JOE para "${opData.eventName}" (R$ ${opData.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) foi gravada com sucesso no Supabase.`,
+        text: isSynced
+          ? 'Salvo com sucesso no Banco de Dados!'
+          : 'Lançamento Gravado com Sucesso!',
+        details: isSynced
+          ? `A solicitação de JOE para "${opData.eventName}" (R$ ${opData.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) foi gravada no Supabase e está disponível para todos os usuários.`
+          : `A solicitação para "${opData.eventName}" foi salva e colocada na fila prioritária de sincronização com o Supabase.`,
       });
       setIsSubmitting(false);
       
-      // Auto-navigate back to list after 1.8 seconds if the user doesn't interact
+      // Auto-navigate back to list after short display
       setTimeout(() => {
-        // Only if still showing this success message
         setStatusMessage((curr) => {
           if (curr?.type === 'success') {
             onCancel();
           }
           return curr;
         });
-      }, 2200);
+      }, 1800);
     } catch (err: any) {
       setIsSubmitting(false);
       setStatusMessage({
         type: 'error',
-        text: 'Erro ao salvar no banco de dados',
-        details: err?.message || 'Falha ao estabelecer conexão com o banco de dados. Tente novamente.',
+        text: 'Erro ao registrar lançamento',
+        details: err?.message || 'Falha ao processar a operação. Tente novamente.',
       });
     }
   };

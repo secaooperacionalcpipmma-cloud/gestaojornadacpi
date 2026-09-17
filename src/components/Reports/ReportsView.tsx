@@ -17,10 +17,18 @@ import {
   Check,
   Sparkles,
 } from 'lucide-react';
-import { CommandUnit, OperationLaunch, OrdinancePeriod, User } from '../../types';
-import { formatCurrencyBRL, formatInteger } from '../../utils/formatters';
+import { CommandUnit, OperationLaunch, OrdinancePeriod, User, CommandBudget } from '../../types';
+import {
+  formatCurrencyBRL,
+  formatInteger,
+  formatValorTotal,
+  formatValorExecutado,
+  formatValorDisponivel,
+  formatJoeDisponivel,
+} from '../../utils/formatters';
 import { excelService, formatCommandDisplay, sortOperationsOfficial } from '../../services/excelService';
 import { pdfService } from '../../services/pdfService';
+import { storageService } from '../../services/storageService';
 import {
   copyFormattedHtmlToClipboard,
   buildDetailedTableHtml,
@@ -41,6 +49,7 @@ interface ReportsViewProps {
   ordinances: OrdinancePeriod[];
   activeOrdinance: OrdinancePeriod;
   currentUser: User;
+  budgets?: CommandBudget[];
 }
 
 interface ColumnField {
@@ -57,6 +66,7 @@ export function ReportsView({
   ordinances,
   activeOrdinance,
   currentUser,
+  budgets,
 }: ReportsViewProps) {
   // Selected ordinance filter (defaults to active in-effect ordinance)
   const [selectedOrdinanceId, setSelectedOrdinanceId] = useState<string>(activeOrdinance.id);
@@ -271,40 +281,97 @@ export function ReportsView({
     [filteredOperations]
   );
 
-  // Quadro Resumo CPI Data Breakdown (Print 04)
+  // Quadro Resumo CPI Data Breakdown (PRINT 02 MODEL - EXACT REPLICATION)
   const quadroResumoData = useMemo(() => {
     const standardCodes = [...OFFICIAL_COMMAND_CODES];
 
-    const map: Record<string, number> = {};
-    standardCodes.forEach((code) => {
-      map[code] = 0;
+    // Get budgets for the selected ordinance
+    const effectiveBudgets =
+      (budgets && budgets.length > 0
+        ? budgets.filter((b) => b.ordinanceId === selectedOrdinanceId)
+        : []) || [];
+
+    const storedBudgets =
+      effectiveBudgets.length > 0
+        ? effectiveBudgets
+        : storageService.getBudgets(selectedOrdinanceId);
+
+    // Official standard amounts defined for Portaria 122/2026
+    const defaultDisponibilizado: Record<string, { val: number; joes: number }> = {
+      'CPI': { val: 10500, joes: 30 },
+      'CPA/I-1': { val: 65100, joes: 186 },
+      'CPA/I-2': { val: 65100, joes: 186 },
+      'CPA/I-3': { val: 105000, joes: 300 },
+      'CPA/I-4': { val: 65100, joes: 186 },
+      'CPA/I-5': { val: 80500, joes: 230 },
+      'CPA/I-6': { val: 59500, joes: 170 },
+      'CPA/I-7': { val: 65100, joes: 186 },
+      'CPA/I-8': { val: 65100, joes: 186 },
+      'CPA/I-9': { val: 79100, joes: 226 },
+    };
+
+    const rows = standardCodes.map((code) => {
+      const bgt = storedBudgets.find(
+        (b) => normalizeCommandName(b.commandId) === normalizeCommandName(code)
+      );
+      const def = defaultDisponibilizado[code] || { val: 0, joes: 0 };
+      const valorTotalDisponibilizado =
+        bgt?.budgetAmount !== undefined ? bgt.budgetAmount : def.val;
+      const quantJoe = bgt?.plannedJoes !== undefined ? bgt.plannedJoes : def.joes;
+
+      // Filter operations for this unit
+      const opsForCode = filteredOperations.filter(
+        (op) => normalizeCommandName(op.commandId) === normalizeCommandName(code)
+      );
+
+      const valorExecutado = opsForCode.reduce(
+        (sum, op) => sum + (Number(op.totalValue) || 0),
+        0
+      );
+      const quantJoeExecutada = opsForCode.reduce(
+        (sum, op) => sum + (Number(op.officersCount) || 0),
+        0
+      );
+
+      const valorDisponivel = valorTotalDisponibilizado - valorExecutado;
+      const quantJoeDisponivel = quantJoe - quantJoeExecutada;
+
+      return {
+        code,
+        valorTotalDisponibilizado,
+        quantJoe,
+        valorExecutado,
+        quantJoeExecutada,
+        valorDisponivel,
+        quantJoeDisponivel,
+        amount: valorExecutado, // backward compatibility
+      };
     });
 
-    let totalGeral = 0;
-
-    filteredOperations.forEach((op) => {
-      const formatted = normalizeCommandName(op.commandId);
-      const val = Number(op.totalValue) || 0;
-      totalGeral += val;
-
-      if (map[formatted] !== undefined) {
-        map[formatted] += val;
-      } else {
-        const found = standardCodes.find((sc) => normalizeCommandName(formatted) === sc);
-        if (found) {
-          map[found] += val;
-        }
-      }
-    });
+    const totalDisponibilizado = rows.reduce(
+      (sum, r) => sum + r.valorTotalDisponibilizado,
+      0
+    );
+    const totalQuantJoe = rows.reduce((sum, r) => sum + r.quantJoe, 0);
+    const totalExecutado = rows.reduce((sum, r) => sum + r.valorExecutado, 0);
+    const totalQuantExecutada = rows.reduce(
+      (sum, r) => sum + r.quantJoeExecutada,
+      0
+    );
+    const totalDisponivel = totalDisponibilizado - totalExecutado;
+    const totalQuantDisponivel = totalQuantJoe - totalQuantExecutada;
 
     return {
-      rows: standardCodes.map((code) => ({
-        code,
-        amount: map[code] || 0,
-      })),
-      totalGeral,
+      rows,
+      totalDisponibilizado,
+      totalQuantJoe,
+      totalExecutado,
+      totalQuantExecutada,
+      totalDisponivel,
+      totalQuantDisponivel,
+      totalGeral: totalExecutado, // backward compatibility
     };
-  }, [filteredOperations]);
+  }, [filteredOperations, selectedOrdinanceId, budgets]);
 
   // Command selection helpers for multi-unit selection array
   const handleSelectAllCommands = () => {
@@ -1086,47 +1153,108 @@ export function ReportsView({
             </div>
 
             {/* Centered official layout matching Print 02 */}
-            <div className="max-w-xl mx-auto border-2 border-slate-800 bg-white shadow-sm rounded-sm overflow-hidden">
-              {/* Title: CPI */}
-              <div className="py-2.5 text-center font-black text-slate-900 text-lg tracking-widest bg-white border-b-2 border-slate-800">
-                CPI
-              </div>
-
-              {/* Table Header Banner: QUADRO RESUMO CPI */}
-              <div className="py-2 text-center font-bold text-xs sm:text-sm tracking-wider uppercase bg-slate-100 border-b-2 border-slate-800 text-slate-900">
-                QUADRO RESUMO CPI
-              </div>
-
-              {/* Table */}
-              <table className="w-full text-xs text-slate-800 border-collapse">
+            <div className="w-full max-w-5xl mx-auto border-2 border-slate-700 bg-white shadow-sm overflow-x-auto">
+              <table className="w-full text-xs text-slate-900 border-collapse">
                 <thead>
-                  <tr className="bg-slate-200 border-b border-slate-400 text-[11px] font-bold text-slate-900">
-                    <th className="py-2 px-6 text-center border-r border-slate-400 w-1/2 uppercase tracking-wider">
+                  {/* Row 1: CPI */}
+                  <tr>
+                    <th
+                      colSpan={7}
+                      className="py-2.5 text-center font-black text-slate-900 text-lg tracking-widest bg-white border border-slate-400"
+                    >
+                      CPI
+                    </th>
+                  </tr>
+                  {/* Row 2: QUADRO RESUMO CPI */}
+                  <tr>
+                    <th
+                      colSpan={7}
+                      className="py-2 text-center font-bold text-xs sm:text-sm tracking-wider uppercase bg-slate-200 border border-slate-400 text-slate-900"
+                    >
+                      QUADRO RESUMO CPI
+                    </th>
+                  </tr>
+                  {/* Row 3: 7 Column Headers */}
+                  <tr className="bg-slate-300 text-[11px] font-bold text-slate-900 uppercase">
+                    <th className="py-2 px-3 text-center border border-slate-400 tracking-wider">
                       UNIDADE
                     </th>
-                    <th className="py-2 px-6 text-center w-1/2 uppercase tracking-wider">
-                      VALOR
+                    <th className="py-2 px-3 text-center border border-slate-400 tracking-wider">
+                      VALOR TOTAL DISPONIBILIZADO
+                    </th>
+                    <th className="py-2 px-3 text-center border border-slate-400 tracking-wider">
+                      QUANT. JOE
+                    </th>
+                    <th className="py-2 px-3 text-center border border-slate-400 tracking-wider">
+                      VALOR EXECUTADO
+                    </th>
+                    <th className="py-2 px-3 text-center border border-slate-400 tracking-wider">
+                      QUANT. JOE EXECUTADA
+                    </th>
+                    <th className="py-2 px-3 text-center border border-slate-400 tracking-wider">
+                      VALOR DISPONÍVEL
+                    </th>
+                    <th className="py-2 px-3 text-center border border-slate-400 tracking-wider">
+                      QUANT. JOE DISPONÍVEL
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-300">
                   {quadroResumoData.rows.map((row) => (
-                    <tr key={row.code} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-1.5 px-6 text-center font-semibold border-r border-slate-300 text-slate-900">
+                    <tr key={row.code} className="hover:bg-slate-50 transition-colors">
+                      <td className="py-2 px-3 text-center font-bold border border-slate-300 text-slate-900">
                         {row.code}
                       </td>
-                      <td className="py-1.5 px-6 text-center font-mono font-medium text-slate-900">
-                        {row.amount > 0 ? formatCurrencyBRL(row.amount) : 'R$ 0,00'}
+                      <td className="py-2 px-3 text-center font-medium border border-slate-300 text-slate-900">
+                        {formatValorTotal(row.valorTotalDisponibilizado)}
+                      </td>
+                      <td className="py-2 px-3 text-center font-medium border border-slate-300 text-slate-900">
+                        {row.quantJoe}
+                      </td>
+                      <td className="py-2 px-3 text-center font-bold border border-slate-300 text-slate-900">
+                        {formatValorExecutado(row.valorExecutado)}
+                      </td>
+                      <td className="py-2 px-3 text-center font-medium border border-slate-300 text-slate-900">
+                        {row.quantJoeExecutada}
+                      </td>
+                      <td
+                        className={`py-2 px-3 text-center font-medium border border-slate-300 ${
+                          row.valorDisponivel < 0 ? 'text-red-700 font-bold' : 'text-slate-900'
+                        }`}
+                      >
+                        {formatValorDisponivel(row.valorDisponivel)}
+                      </td>
+                      <td
+                        className={`py-2 px-3 text-center font-medium border border-slate-300 ${
+                          row.quantJoeDisponivel < 0 ? 'text-red-700 font-bold' : 'text-slate-900'
+                        }`}
+                      >
+                        {formatJoeDisponivel(row.quantJoeDisponivel)}
                       </td>
                     </tr>
                   ))}
-                  {/* Total Row */}
-                  <tr className="bg-slate-200 font-bold border-t-2 border-slate-800 text-slate-900">
-                    <td className="py-2.5 px-6 text-center uppercase tracking-wider border-r border-slate-800 font-black text-xs sm:text-sm">
+                  {/* Total Row: TOTAL GERAL CPI */}
+                  <tr className="bg-slate-300 font-bold border-t-2 border-slate-700 text-slate-900">
+                    <td className="py-2.5 px-3 text-center uppercase tracking-wider border border-slate-400 font-black text-xs sm:text-sm">
                       TOTAL GERAL CPI
                     </td>
-                    <td className="py-2.5 px-6 text-center font-mono font-black text-xs sm:text-sm text-slate-900">
-                      {formatCurrencyBRL(quadroResumoData.totalGeral)}
+                    <td className="py-2.5 px-3 text-center border border-slate-400 font-black text-xs sm:text-sm text-slate-900">
+                      {formatValorTotal(quadroResumoData.totalDisponibilizado)}
+                    </td>
+                    <td className="py-2.5 px-3 text-center border border-slate-400 font-black text-xs sm:text-sm text-slate-900">
+                      {quadroResumoData.totalQuantJoe}
+                    </td>
+                    <td className="py-2.5 px-3 text-center border border-slate-400 font-black text-xs sm:text-sm text-slate-900">
+                      {formatValorExecutado(quadroResumoData.totalExecutado)}
+                    </td>
+                    <td className="py-2.5 px-3 text-center border border-slate-400 font-black text-xs sm:text-sm text-slate-900">
+                      {quadroResumoData.totalQuantExecutada}
+                    </td>
+                    <td className="py-2.5 px-3 text-center border border-slate-400 font-black text-xs sm:text-sm text-slate-900">
+                      {formatValorDisponivel(quadroResumoData.totalDisponivel)}
+                    </td>
+                    <td className="py-2.5 px-3 text-center border border-slate-400 font-black text-xs sm:text-sm text-slate-900">
+                      {formatJoeDisponivel(quadroResumoData.totalQuantDisponivel)}
                     </td>
                   </tr>
                 </tbody>

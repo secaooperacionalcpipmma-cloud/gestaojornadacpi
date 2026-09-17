@@ -4,7 +4,14 @@
  * mantendo alinhamentos, bordas, cores de cabeçalho, tipografia, larguras e formatação de valores em R$.
  */
 
-import { formatCurrencyBRL, formatInteger } from './formatters';
+import {
+  formatCurrencyBRL,
+  formatInteger,
+  formatValorTotal,
+  formatValorExecutado,
+  formatValorDisponivel,
+  formatJoeDisponivel,
+} from './formatters';
 import { OperationLaunch, OrdinancePeriod } from '../types';
 
 export interface ReportColumnConfig {
@@ -15,12 +22,24 @@ export interface ReportColumnConfig {
 
 export interface QuadroResumoItem {
   code: string;
-  amount: number;
+  valorTotalDisponibilizado: number;
+  quantJoe: number;
+  valorExecutado: number;
+  quantJoeExecutada: number;
+  valorDisponivel: number;
+  quantJoeDisponivel: number;
+  amount?: number; // fallback
 }
 
 export interface QuadroResumoData {
   rows: QuadroResumoItem[];
-  totalGeral: number;
+  totalDisponibilizado: number;
+  totalQuantJoe: number;
+  totalExecutado: number;
+  totalQuantExecutada: number;
+  totalDisponivel: number;
+  totalQuantDisponivel: number;
+  totalGeral?: number; // fallback
 }
 
 /**
@@ -251,7 +270,7 @@ export function buildDetailedTableHtml(
 }
 
 /**
- * Gera o HTML do Quadro Resumo Geral do CPI com estilos inline compatíveis com Word
+ * Gera o HTML do Quadro Resumo Geral do CPI com estilos inline compatíveis com Word (Print 02)
  */
 export function buildQuadroResumoHtml(
   quadroResumoData: QuadroResumoData,
@@ -260,56 +279,118 @@ export function buildQuadroResumoHtml(
   const ordName = ordinance?.name || ordinance?.number || 'Portaria Vigente';
 
   let html = `
-  <div style="font-family: Calibri, Arial, sans-serif; font-size: 10pt; color: #1e293b; max-width: 480px; margin: 0 auto 20px auto;">
-    <table border="2" cellpadding="6" cellspacing="0" style="width: 100%; border-collapse: collapse; font-family: Calibri, Arial, sans-serif; font-size: 9.5pt; border: 2pt solid #000000; text-align: center; mso-table-lspace: 0pt; mso-table-rspace: 0pt;">
+  <div style="font-family: Calibri, Arial, sans-serif; font-size: 10pt; color: #1e293b; max-width: 900px; margin: 0 auto 20px auto;">
+    <div style="text-align: center; font-weight: bold; font-size: 11pt; margin-bottom: 8px; color: #334155;">
+      — Quadro Resumo Consolidado do Comando de Policiamento do Interior (CPI) —
+    </div>
+    <table border="2" cellpadding="5" cellspacing="0" style="width: 100%; border-collapse: collapse; font-family: Calibri, Arial, sans-serif; font-size: 9pt; border: 1.5pt solid #475569; text-align: center; mso-table-lspace: 0pt; mso-table-rspace: 0pt;">
       <thead>
         <tr>
-          <th colspan="2" style="background-color: #ffffff; color: #000000; padding: 8px; font-size: 13pt; font-weight: bold; text-align: center; border-bottom: 2pt solid #000000; letter-spacing: 2px; font-family: Calibri, Arial, sans-serif;">
+          <th colspan="7" style="background-color: #ffffff; color: #000000; padding: 6px; font-size: 12pt; font-weight: bold; text-align: center; border: 1pt solid #64748b; letter-spacing: 2px; font-family: Calibri, Arial, sans-serif;">
             CPI
           </th>
         </tr>
         <tr>
-          <th colspan="2" style="background-color: #f1f5f9; color: #0f172a; padding: 6px; font-size: 10pt; font-weight: bold; text-align: center; border-bottom: 2pt solid #000000; text-transform: uppercase; letter-spacing: 1px; font-family: Calibri, Arial, sans-serif;">
+          <th colspan="7" style="background-color: #f1f5f9; color: #0f172a; padding: 5px; font-size: 9.5pt; font-weight: bold; text-align: center; border: 1pt solid #64748b; text-transform: uppercase; letter-spacing: 1px; font-family: Calibri, Arial, sans-serif;">
             QUADRO RESUMO CPI
           </th>
         </tr>
-        <tr style="background-color: #e2e8f0; color: #0f172a;">
-          <th style="padding: 6px 12px; border: 1px solid #64748b; background-color: #e2e8f0; text-align: center; font-weight: bold; font-size: 9pt; width: 50%; text-transform: uppercase; font-family: Calibri, Arial, sans-serif;">
+        <tr style="background-color: #cbd5e1; color: #0f172a;">
+          <th style="padding: 6px 4px; border: 1pt solid #64748b; background-color: #cbd5e1; text-align: center; font-weight: bold; font-size: 8.5pt; text-transform: uppercase;">
             UNIDADE
           </th>
-          <th style="padding: 6px 12px; border: 1px solid #64748b; background-color: #e2e8f0; text-align: center; font-weight: bold; font-size: 9pt; width: 50%; text-transform: uppercase; font-family: Calibri, Arial, sans-serif;">
-            VALOR
+          <th style="padding: 6px 4px; border: 1pt solid #64748b; background-color: #cbd5e1; text-align: center; font-weight: bold; font-size: 8.5pt; text-transform: uppercase;">
+            VALOR TOTAL DISPONIBILIZADO
+          </th>
+          <th style="padding: 6px 4px; border: 1pt solid #64748b; background-color: #cbd5e1; text-align: center; font-weight: bold; font-size: 8.5pt; text-transform: uppercase;">
+            QUANT. JOE
+          </th>
+          <th style="padding: 6px 4px; border: 1pt solid #64748b; background-color: #cbd5e1; text-align: center; font-weight: bold; font-size: 8.5pt; text-transform: uppercase;">
+            VALOR EXECUTADO
+          </th>
+          <th style="padding: 6px 4px; border: 1pt solid #64748b; background-color: #cbd5e1; text-align: center; font-weight: bold; font-size: 8.5pt; text-transform: uppercase;">
+            QUANT. JOE EXECUTADA
+          </th>
+          <th style="padding: 6px 4px; border: 1pt solid #64748b; background-color: #cbd5e1; text-align: center; font-weight: bold; font-size: 8.5pt; text-transform: uppercase;">
+            VALOR DISPONÍVEL
+          </th>
+          <th style="padding: 6px 4px; border: 1pt solid #64748b; background-color: #cbd5e1; text-align: center; font-weight: bold; font-size: 8.5pt; text-transform: uppercase;">
+            QUANT. JOE DISPONÍVEL
           </th>
         </tr>
       </thead>
       <tbody>
   `;
 
-  let plain = `CPI\nQUADRO RESUMO CPI • ${ordName}\n\nUNIDADE\tVALOR\n`;
+  let plain = `CPI\nQUADRO RESUMO CPI • ${ordName}\n\nUNIDADE\tVALOR TOTAL DISPONIBILIZADO\tQUANT. JOE\tVALOR EXECUTADO\tQUANT. JOE EXECUTADA\tVALOR DISPONÍVEL\tQUANT. JOE DISPONÍVEL\n`;
 
   quadroResumoData.rows.forEach((row, idx) => {
     const bg = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
-    const formattedAmount = row.amount > 0 ? formatCurrencyBRL(row.amount) : 'R$ 0,00';
+    const fTotal = formatValorTotal(row.valorTotalDisponibilizado);
+    const fQJoe = row.quantJoe ? row.quantJoe.toString() : '0';
+    const fExec = formatValorExecutado(row.valorExecutado);
+    const fQExec = row.quantJoeExecutada ? row.quantJoeExecutada.toString() : '0';
+    const fDisp = formatValorDisponivel(row.valorDisponivel);
+    const fQDisp = formatJoeDisponivel(row.quantJoeDisponivel);
+    const dispStyle = row.valorDisponivel < 0 ? 'color: #b91c1c; font-weight: bold;' : '';
+    const qDispStyle = row.quantJoeDisponivel < 0 ? 'color: #b91c1c; font-weight: bold;' : '';
+
     html += `
       <tr style="background-color: ${bg};">
-        <td style="padding: 6px 12px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold; color: #0f172a; font-family: Calibri, Arial, sans-serif;">
+        <td style="padding: 5px 6px; border: 1pt solid #94a3b8; text-align: center; font-weight: bold; color: #0f172a;">
           ${row.code}
         </td>
-        <td style="padding: 6px 12px; border: 1px solid #cbd5e1; text-align: center; color: #0f172a; font-family: Calibri, Arial, sans-serif;">
-          ${formattedAmount}
+        <td style="padding: 5px 6px; border: 1pt solid #94a3b8; text-align: center; color: #0f172a;">
+          ${fTotal}
+        </td>
+        <td style="padding: 5px 6px; border: 1pt solid #94a3b8; text-align: center; color: #0f172a;">
+          ${fQJoe}
+        </td>
+        <td style="padding: 5px 6px; border: 1pt solid #94a3b8; text-align: center; font-weight: bold; color: #0f172a;">
+          ${fExec}
+        </td>
+        <td style="padding: 5px 6px; border: 1pt solid #94a3b8; text-align: center; color: #0f172a;">
+          ${fQExec}
+        </td>
+        <td style="padding: 5px 6px; border: 1pt solid #94a3b8; text-align: center; ${dispStyle}">
+          ${fDisp}
+        </td>
+        <td style="padding: 5px 6px; border: 1pt solid #94a3b8; text-align: center; ${qDispStyle}">
+          ${fQDisp}
         </td>
       </tr>`;
-    plain += `${row.code}\t${formattedAmount}\n`;
+    plain += `${row.code}\t${fTotal}\t${fQJoe}\t${fExec}\t${fQExec}\t${fDisp}\t${fQDisp}\n`;
   });
 
-  const formattedTotal = formatCurrencyBRL(quadroResumoData.totalGeral);
+  const totDisp = formatValorTotal(quadroResumoData.totalDisponibilizado);
+  const totQJoe = quadroResumoData.totalQuantJoe ? quadroResumoData.totalQuantJoe.toString() : '0';
+  const totExec = formatValorExecutado(quadroResumoData.totalExecutado || quadroResumoData.totalGeral);
+  const totQExec = quadroResumoData.totalQuantExecutada ? quadroResumoData.totalQuantExecutada.toString() : '0';
+  const totDisponivel = formatValorDisponivel(quadroResumoData.totalDisponivel);
+  const totQDisponivel = formatJoeDisponivel(quadroResumoData.totalQuantDisponivel);
+
   html += `
-      <tr style="background-color: #e2e8f0; font-weight: bold; border-top: 2pt solid #000000;">
-        <td style="padding: 8px 12px; border: 1px solid #475569; background-color: #e2e8f0; text-align: center; font-weight: bold; font-size: 9.5pt; color: #000000; text-transform: uppercase; font-family: Calibri, Arial, sans-serif;">
+      <tr style="background-color: #cbd5e1; font-weight: bold; border-top: 1.5pt solid #334155;">
+        <td style="padding: 6px; border: 1pt solid #64748b; background-color: #cbd5e1; text-align: center; font-weight: bold; font-size: 9pt; color: #000000; text-transform: uppercase;">
           TOTAL GERAL CPI
         </td>
-        <td style="padding: 8px 12px; border: 1px solid #475569; background-color: #e2e8f0; text-align: center; font-weight: bold; font-size: 9.5pt; color: #000000; font-family: Calibri, Arial, sans-serif;">
-          ${formattedTotal}
+        <td style="padding: 6px; border: 1pt solid #64748b; background-color: #cbd5e1; text-align: center; font-weight: bold; font-size: 9pt; color: #000000;">
+          ${totDisp}
+        </td>
+        <td style="padding: 6px; border: 1pt solid #64748b; background-color: #cbd5e1; text-align: center; font-weight: bold; font-size: 9pt; color: #000000;">
+          ${totQJoe}
+        </td>
+        <td style="padding: 6px; border: 1pt solid #64748b; background-color: #cbd5e1; text-align: center; font-weight: bold; font-size: 9pt; color: #000000;">
+          ${totExec}
+        </td>
+        <td style="padding: 6px; border: 1pt solid #64748b; background-color: #cbd5e1; text-align: center; font-weight: bold; font-size: 9pt; color: #000000;">
+          ${totQExec}
+        </td>
+        <td style="padding: 6px; border: 1pt solid #64748b; background-color: #cbd5e1; text-align: center; font-weight: bold; font-size: 9pt; color: #000000;">
+          ${totDisponivel}
+        </td>
+        <td style="padding: 6px; border: 1pt solid #64748b; background-color: #cbd5e1; text-align: center; font-weight: bold; font-size: 9pt; color: #000000;">
+          ${totQDisponivel}
         </td>
       </tr>
     </tbody>
@@ -317,7 +398,7 @@ export function buildQuadroResumoHtml(
   </div>
   `;
 
-  plain += `TOTAL GERAL CPI\t${formattedTotal}\n`;
+  plain += `TOTAL GERAL CPI\t${totDisp}\t${totQJoe}\t${totExec}\t${totQExec}\t${totDisponivel}\t${totQDisponivel}\n`;
 
   return { html, plain };
 }

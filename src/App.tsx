@@ -78,12 +78,65 @@ export default function App() {
     setCurrentUser(session);
   }, []);
 
-  // Initialize Supabase on mount
+  // Initialize Supabase on mount and push any cached operations to the database
   useEffect(() => {
     storageService.initSupabase().then(() => {
       reloadData();
     });
   }, [reloadData]);
+
+  // Periodic and event-driven background sync
+  useEffect(() => {
+    // 1. Sync every 25 seconds in the background
+    const interval = setInterval(() => {
+      storageService.syncWithCloudInBackground().then(() => {
+        reloadData();
+      });
+    }, 25000);
+
+    // 2. Sync when user switches focus back to the window
+    const onFocus = () => {
+      storageService.syncWithCloudInBackground().then(() => {
+        reloadData();
+      });
+    };
+
+    // 3. Sync immediately when network connection comes back online
+    const onOnline = () => {
+      storageService.forceSynchronizeAllLocalDataToSupabase().then(() => {
+        reloadData();
+      });
+    };
+
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('online', onOnline);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onOnline);
+    };
+  }, [reloadData]);
+
+  // Handle manual database sync triggered by the user
+  const handleManualSync = async () => {
+    showToast('info', 'Sincronizando Banco de Dados...', 'Resgatando registros e sincronizando com o Supabase.');
+    const res = await storageService.forceSynchronizeAllLocalDataToSupabase();
+    reloadData();
+    if (res.success) {
+      showToast(
+        'success',
+        'Banco de Dados Sincronizado!',
+        `${res.uploadedToCloud} lançamento(s) local(is) gravado(s) no Supabase. Total de ${res.totalOperations} operações disponíveis.`
+      );
+    } else {
+      showToast(
+        'info',
+        'Sincronização Concluída',
+        res.message || 'Dados locais preservados com segurança.'
+      );
+    }
+  };
 
   // Listen to storage data updates and trigger debounced Google Drive backup
   useEffect(() => {
@@ -154,13 +207,38 @@ export default function App() {
 
   // Handle operation delete
   const handleDeleteOperation = async (opId: string) => {
-    const res = storageService.deleteOperation(opId, currentUser);
-    if (res.success) {
-      showToast('info', 'Lançamento excluído', 'O registro foi removido com sucesso.');
-    } else {
-      showToast('error', 'Erro ao excluir', res.message || 'Falha ao remover o registro.');
+    try {
+      const res = await storageService.deleteOperation(opId, currentUser);
+      if (res.success) {
+        showToast('info', 'Lançamento excluído', 'O registro foi removido com sucesso do sistema e do banco de dados.');
+      } else {
+        showToast('error', 'Erro ao excluir', res.message || 'Falha ao remover o registro.');
+      }
+    } catch (e: any) {
+      showToast('error', 'Erro ao excluir', e?.message || 'Falha ao remover o registro.');
+    } finally {
+      reloadData();
     }
-    reloadData();
+  };
+
+  // Handle batch operations delete
+  const handleDeleteOperationsBatch = async (opIds: string[]) => {
+    try {
+      const res = await storageService.deleteOperations(opIds, currentUser);
+      if (res.success) {
+        showToast(
+          'info',
+          'Lançamentos excluídos',
+          `${res.count || opIds.length} registro(s) excluído(s) com sucesso do sistema e do banco de dados.`
+        );
+      } else {
+        showToast('error', 'Erro ao excluir', res.message || 'Falha ao remover os registros.');
+      }
+    } catch (e: any) {
+      showToast('error', 'Erro ao excluir', e?.message || 'Falha ao remover os registros.');
+    } finally {
+      reloadData();
+    }
   };
 
   // Handle edit operation click
@@ -290,6 +368,7 @@ export default function App() {
         onOpenCreateOrdinance={() => setIsCreateOrdinanceOpen(true)}
         onOpenBackupModal={() => setIsBackupModalOpen(true)}
         onLogout={handleLogout}
+        onSyncDatabase={handleManualSync}
       />
 
       {/* Main Content Area */}
@@ -327,16 +406,14 @@ export default function App() {
             ordinance={activeOrdinance}
             onEdit={handleEditOperation}
             onDelete={handleDeleteOperation}
+            onDeleteBatch={handleDeleteOperationsBatch}
             initialCommandFilter={listCpaFilter}
             onNavigateToReports={() => setActiveTab('RELATORIOS')}
             onNavigateToCreate={() => {
               setOperationToEdit(null);
               setActiveTab('LANCAR_JOE');
             }}
-            onRefreshData={async () => {
-              await storageService.refreshOperationsFromDatabase();
-              reloadData();
-            }}
+            onRefreshData={handleManualSync}
           />
         )}
 
@@ -367,6 +444,7 @@ export default function App() {
             operations={operations}
             ordinances={ordinances}
             activeOrdinance={activeOrdinance}
+            budgets={budgets}
             currentUser={currentUser}
           />
         )}

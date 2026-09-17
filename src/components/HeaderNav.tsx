@@ -41,6 +41,7 @@ interface HeaderNavProps {
   onExportCsv?: () => void;
   onOpenBackupModal?: () => void;
   onLogout?: () => void;
+  onSyncDatabase?: () => Promise<void> | void;
 }
 
 export function HeaderNav({
@@ -56,6 +57,7 @@ export function HeaderNav({
   onExportCsv,
   onOpenBackupModal,
   onLogout,
+  onSyncDatabase,
 }: HeaderNavProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [driveStatus, setDriveStatus] = useState<DriveSyncStatus>(googleDriveBackupService.getStatus());
@@ -256,13 +258,13 @@ export function HeaderNav({
             {/* Supabase DB Status Badge */}
             <button
               onClick={() => {
-                if (currentUser.role === 'ADMIN') {
+                if (onSyncDatabase) {
+                  onSyncDatabase();
+                } else if (currentUser.role === 'ADMIN') {
                   onTabChange('TESTE_BD');
                 }
               }}
-              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs border ${
-                currentUser.role === 'ADMIN' ? 'cursor-pointer hover:scale-102 active:scale-98' : 'cursor-default'
-              } ${
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs border cursor-pointer hover:scale-102 active:scale-98 ${
                 supabaseStatus === 'SYNCING'
                   ? 'bg-amber-950/70 text-amber-300 border-amber-500/50 animate-pulse'
                   : supabaseStatus === 'CONNECTED'
@@ -271,11 +273,7 @@ export function HeaderNav({
                   ? 'bg-rose-950/60 text-rose-300 border-rose-500/40 hover:bg-rose-900/80'
                   : 'bg-[#001F3F] text-sky-200 border-[#7EC2E8]/40'
               }`}
-              title={
-                currentUser.role === 'ADMIN'
-                  ? 'Clique para abrir o Painel de Teste de Conexão com o Banco de Dados (Super Usuário)'
-                  : 'Supabase PostgreSQL Cloud DB (aflnzikfjeadlvpyoear.supabase.co)'
-              }
+              title="Supabase PostgreSQL Cloud DB - Clique para sincronizar imediatamente com o banco de dados"
             >
               <Database className={`w-3.5 h-3.5 ${
                 supabaseStatus === 'SYNCING'

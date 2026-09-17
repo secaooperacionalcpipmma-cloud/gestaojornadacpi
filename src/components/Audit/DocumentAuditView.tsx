@@ -172,11 +172,8 @@ export const DocumentAuditView: React.FC<DocumentAuditViewProps> = ({
 
     AUDIT_UNITS_MATRIX.forEach((u) => {
       matrix[u.code] = {} as Record<AuditDocumentType, AuditDocumentSlot>;
-      const defaultDocs =
-        DEFAULT_UNIT_DOCUMENTS[u.standardCode] || DEFAULT_UNIT_DOCUMENTS[u.code] || {};
 
       MATRIX_COLUMNS.forEach((col) => {
-        const prefill = defaultDocs[col.type] || '';
         matrix[u.code][col.type] = {
           type: col.type,
           title: col.headerLabel,
@@ -184,23 +181,9 @@ export const DocumentAuditView: React.FC<DocumentAuditViewProps> = ({
           description: col.description,
           legalArticle: col.legalArticle,
           requiredForAudit: false,
-          content: prefill,
-          fileName: prefill
-            ? `${col.headerLabel.replace(/\s+/g, '_')}_${u.code.replace(/[^a-zA-Z0-9]/g, '')}.${
-                col.type === 'PLANILHA_UNICA_PAGADORIA'
-                  ? 'xlsx'
-                  : col.type === 'ORDEM_SERVICO_OPERACAO'
-                  ? 'docx'
-                  : 'pdf'
-              }`
-            : undefined,
-          fileType: prefill
-            ? col.type === 'PLANILHA_UNICA_PAGADORIA'
-              ? 'EXCEL'
-              : col.type === 'ORDEM_SERVICO_OPERACAO'
-              ? 'WORD'
-              : 'PDF'
-            : undefined,
+          content: '',
+          fileName: undefined,
+          fileType: undefined,
         };
       });
     });
@@ -216,7 +199,6 @@ export const DocumentAuditView: React.FC<DocumentAuditViewProps> = ({
 
   // Filter state for ascending table
   const [activeFilterStatus, setActiveFilterStatus] = useState<'TODOS' | 'APROVADOS' | 'PENDENCIAS'>('TODOS');
-  const [selectedUnitDetail, setSelectedUnitDetail] = useState<UnitAuditSummary | null>(null);
 
   // Modal editor / viewer state for document contents
   const [modalCell, setModalCell] = useState<{ unitCode: string; colType: AuditDocumentType } | null>(null);
@@ -253,10 +235,22 @@ export const DocumentAuditView: React.FC<DocumentAuditViewProps> = ({
     currentMatrix: Record<string, Record<AuditDocumentType, AuditDocumentSlot>>
   ) => {
     const unitSlotsObj = currentMatrix[unitCode] || {};
-    const slotsArray: AuditDocumentSlot[] = MATRIX_COLUMNS.map((col) => unitSlotsObj[col.type]);
+    const slotsArray: AuditDocumentSlot[] = MATRIX_COLUMNS.map((col) => {
+      return (
+        unitSlotsObj[col.type] || {
+          type: col.type,
+          title: col.headerLabel,
+          shortTitle: col.headerLabel,
+          description: col.description,
+          legalArticle: col.legalArticle,
+          requiredForAudit: false,
+          content: '',
+        }
+      );
+    });
 
     try {
-      const result = performDocumentAudit(slotsArray, unitCode, ordinance, currentUser.name);
+      const result = performDocumentAudit(slotsArray, unitCode, ordinance, currentUser?.name || 'Auditor CPI');
       setSingleAuditResult(result);
     } catch (e) {
       console.warn('Erro na auditoria individual:', e);
@@ -271,7 +265,19 @@ export const DocumentAuditView: React.FC<DocumentAuditViewProps> = ({
 
     AUDIT_UNITS_MATRIX.forEach((u) => {
       const slotsObj = currentMatrix[u.code] || {};
-      const slotsArray: AuditDocumentSlot[] = MATRIX_COLUMNS.map((col) => slotsObj[col.type]);
+      const slotsArray: AuditDocumentSlot[] = MATRIX_COLUMNS.map((col) => {
+        return (
+          slotsObj[col.type] || {
+            type: col.type,
+            title: col.headerLabel,
+            shortTitle: col.headerLabel,
+            description: col.description,
+            legalArticle: col.legalArticle,
+            requiredForAudit: false,
+            content: '',
+          }
+        );
+      });
       unitDocsMap[u.standardCode] = slotsArray;
       unitDocsMap[u.code] = slotsArray;
     });
@@ -284,13 +290,10 @@ export const DocumentAuditView: React.FC<DocumentAuditViewProps> = ({
         unitDocsMap,
         commands,
         ordinance,
-        currentUser.name
+        currentUser?.name || 'Auditor CPI'
       );
 
       setMultiAuditResult(result);
-      if (result.unitSummaries.length > 0 && !selectedUnitDetail) {
-        setSelectedUnitDetail(result.unitSummaries[0]);
-      }
     } catch (e) {
       console.warn('Erro na auditoria multi-unidades:', e);
     }
@@ -1793,23 +1796,19 @@ DISCRIMINAÇÃO DETALHADA POR UNIDADE (ORDEM CRESCENTE):
                         <th className="py-3 px-3 text-center w-28">Efetivo</th>
                         <th className="py-3 px-3.5 text-right w-32">Valor Total</th>
                         <th className="py-3 px-3 text-center w-36">Status</th>
-                        <th className="py-3 px-3.5">Discriminação de Pendências / Parecer</th>
-                        <th className="py-3 px-3 w-20 text-center">Detalhes</th>
+                        <th className="py-3 px-3.5">Relatório Oficial de Inconsistências / Conformidade (100% OK)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
                       {filteredUnitSummaries.map((summary) => {
                         const isApproved = summary.status === 'APROVADO_CONFORME';
                         const isPending = summary.status === 'REPROVADO_PENDENCIAS';
-                        const isSelectedDetail = selectedUnitDetail?.commandId === summary.commandId;
 
                         return (
                           <tr
                             key={summary.commandId}
                             className={`transition-colors ${
-                              isSelectedDetail
-                                ? 'bg-sky-50/70'
-                                : isApproved
+                              isApproved
                                 ? 'hover:bg-emerald-50/40'
                                 : isPending
                                 ? 'hover:bg-rose-50/40'
@@ -1874,11 +1873,11 @@ DISCRIMINAÇÃO DETALHADA POR UNIDADE (ORDEM CRESCENTE):
 
                             <td className="py-3 px-3.5">
                               {isApproved ? (
-                                <div className="bg-emerald-50/80 rounded-xl p-2.5 border border-emerald-200/80 space-y-1.5">
+                                <div className="bg-emerald-50/80 rounded-xl p-3 border border-emerald-200/80 space-y-1.5">
                                   <div className="flex items-center justify-between gap-2">
                                     <div className="text-emerald-900 text-xs flex items-center gap-1.5 font-bold">
-                                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                                      <span>Conformidade 100% Validada</span>
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                      <span>100% OK · Processo Regular e Conforme</span>
                                     </div>
                                     <button
                                       onClick={() => handleCopyUnitParecer(summary)}
@@ -1899,15 +1898,15 @@ DISCRIMINAÇÃO DETALHADA POR UNIDADE (ORDEM CRESCENTE):
                                     </button>
                                   </div>
                                   <p className="text-emerald-800 text-[11px] font-medium leading-relaxed">
-                                    Turno ≤ 6h, efetivo e valor conforme a Portaria nº {ordinance.number}. Documentação regular e autorizada para pagamento.
+                                    Todos os 6 documentos coincidem: Turno de {summary.durationHours || 6}h (≤ 6h), valor unitário correto de R$ {ordinance.unitValueJoe.toFixed(2)}, efetivo consistente e autorizada para liquidação e pagamento.
                                   </p>
                                 </div>
                               ) : isPending ? (
-                                <div className="bg-rose-50/70 rounded-xl p-2.5 border border-rose-200/80 space-y-2">
+                                <div className="bg-rose-50/70 rounded-xl p-3 border border-rose-200/80 space-y-2">
                                   <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-rose-200/60">
-                                    <span className="text-[10px] font-black uppercase tracking-wider text-rose-800 flex items-center gap-1">
-                                      <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                                      <span>{summary.discrepancies.length} Pendência(s) Identificada(s)</span>
+                                    <span className="text-[11px] font-black uppercase tracking-wider text-rose-900 flex items-center gap-1.5">
+                                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                                      <span>{summary.discrepancies.length} Inconsistência(s) Identificada(s)</span>
                                     </span>
                                     <button
                                       onClick={() => handleCopyUnitParecer(summary)}
@@ -1916,13 +1915,13 @@ DISCRIMINAÇÃO DETALHADA POR UNIDADE (ORDEM CRESCENTE):
                                     >
                                       {copiedSection === `PARECER_${summary.commandId}` ? (
                                         <>
-                                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                          <Check className="w-3 h-3 text-emerald-600" />
                                           <span className="text-emerald-700 font-bold">Copiado!</span>
                                         </>
                                       ) : (
                                         <>
-                                          <Copy className="w-3.5 h-3.5 text-rose-700" />
-                                          <span>Copiar Parecer</span>
+                                          <Copy className="w-3 h-3 text-rose-700" />
+                                          <span>Copiar Pendências</span>
                                         </>
                                       )}
                                     </button>
@@ -1930,32 +1929,24 @@ DISCRIMINAÇÃO DETALHADA POR UNIDADE (ORDEM CRESCENTE):
 
                                   <div className="space-y-1.5">
                                     {summary.discrepancies.map((d, idx) => (
-                                      <div key={idx} className="text-rose-900 text-[11px] flex items-start gap-1.5 leading-relaxed">
+                                      <div key={idx} className="text-rose-900 text-xs flex items-start gap-1.5 leading-relaxed bg-white/80 p-2 rounded-lg border border-rose-200">
                                         <span className="font-bold text-rose-600 text-xs shrink-0">•</span>
-                                        <div>
-                                          <span className="font-bold text-slate-900">{d.title}:</span>{' '}
-                                          <span className="text-slate-800">{d.description}</span>{' '}
-                                          <span className="text-[10px] text-slate-500 font-mono block sm:inline mt-0.5 sm:mt-0">
-                                            ({d.remedyAction})
-                                          </span>
+                                        <div className="space-y-0.5">
+                                          <div>
+                                            <span className="font-bold text-slate-900">{d.title}:</span>{' '}
+                                            <span className="text-slate-800">{d.description}</span>
+                                          </div>
+                                          <div className="text-[10px] text-slate-500 font-mono">
+                                            <strong>Base Legal:</strong> {d.legalBasis} | <strong className="text-amber-800">Ação:</strong> {d.remedyAction}
+                                          </div>
                                         </div>
                                       </div>
                                     ))}
                                   </div>
                                 </div>
                               ) : (
-                                <span className="text-slate-400 text-[11px]">Nenhum documento anexado para análise.</span>
+                                <span className="text-slate-400 text-[11px]">Nenhum documento anexado para análise desta unidade.</span>
                               )}
-                            </td>
-
-                            <td className="py-3 px-3 text-center">
-                              <button
-                                onClick={() => setSelectedUnitDetail(summary)}
-                                className="p-1.5 rounded-lg text-slate-500 hover:text-[#002D5A] hover:bg-slate-100 transition-colors cursor-pointer"
-                                title="Ver detalhes da auditoria desta unidade"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
                             </td>
                           </tr>
                         );
@@ -2002,142 +1993,6 @@ DISCRIMINAÇÃO DETALHADA POR UNIDADE (ORDEM CRESCENTE):
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* MODAL: UNIT AUDIT DETAIL & PARECER INSPECTION */}
-      {/* ========================================================================= */}
-      {selectedUnitDetail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm text-white ${
-                    selectedUnitDetail.status === 'APROVADO_CONFORME'
-                      ? 'bg-emerald-600'
-                      : selectedUnitDetail.status === 'REPROVADO_PENDENCIAS'
-                      ? 'bg-rose-600'
-                      : 'bg-slate-600'
-                  }`}
-                >
-                  #{selectedUnitDetail.orderNumber.toString().padStart(2, '0')}
-                </div>
-                <div>
-                  <span className="text-[11px] font-black uppercase text-[#002D5A] tracking-wider">
-                    Auditoria Individual de JOE
-                  </span>
-                  <h3 className="text-base font-bold text-slate-900">
-                    {selectedUnitDetail.commandId} — {selectedUnitDetail.commandName}
-                  </h3>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setSelectedUnitDetail(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Quick Metrics */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-200">
-                <div className="text-[10px] font-bold text-slate-500 uppercase">Operação</div>
-                <div className="text-xs font-bold text-slate-900 truncate" title={selectedUnitDetail.eventName || ''}>
-                  {selectedUnitDetail.eventName || 'Operação de JOE'}
-                </div>
-              </div>
-              <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-200">
-                <div className="text-[10px] font-bold text-slate-500 uppercase">Turno Auditado</div>
-                <div className="text-xs font-bold text-slate-900">
-                  {selectedUnitDetail.durationHours ? `${selectedUnitDetail.durationHours}h de serviço` : 'Não detectado'}
-                </div>
-              </div>
-              <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-200">
-                <div className="text-[10px] font-bold text-slate-500 uppercase">Efetivo Extraordinário</div>
-                <div className="text-xs font-bold text-slate-900">
-                  {selectedUnitDetail.totalOfficers > 0 ? `${selectedUnitDetail.totalOfficers} PMs` : '0 PMs'}
-                </div>
-              </div>
-              <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-200">
-                <div className="text-[10px] font-bold text-slate-500 uppercase">Valor Liquidado</div>
-                <div className="text-xs font-bold text-slate-900 font-mono">
-                  {formatCurrencyBRL(selectedUnitDetail.totalAmount)}
-                </div>
-              </div>
-            </div>
-
-            {/* Inconsistencies List or Approval Note */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                  Parecer e Cruzamento Documental
-                </h4>
-                <button
-                  onClick={() => handleCopyUnitParecer(selectedUnitDetail)}
-                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#002D5A] hover:bg-[#001F3F] text-white shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                >
-                  {copiedSection === `PARECER_${selectedUnitDetail.commandId}` ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Texto Copiado!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Copiar Parecer Completo</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {selectedUnitDetail.status === 'APROVADO_CONFORME' ? (
-                <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-200 text-emerald-900 space-y-1">
-                  <div className="flex items-center gap-2 font-bold text-sm">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>Processo 100% Conforme e Aprovado</span>
-                  </div>
-                  <p className="text-xs text-emerald-800 leading-relaxed">
-                    Todos os requisitos da Portaria nº {ordinance.number} - GCG foram cumpridos: turno com limite de 6h, valor unitário correto de R$ {ordinance.unitValueJoe.toFixed(2)}, efetivo consistente e denominações padronizadas.
-                  </p>
-                </div>
-              ) : selectedUnitDetail.discrepancies.length > 0 ? (
-                <div className="space-y-2">
-                  {selectedUnitDetail.discrepancies.map((d, i) => (
-                    <div key={i} className="bg-rose-50 rounded-xl p-3 border border-rose-200 space-y-1">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-rose-900">
-                        <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                        <span>{d.title}</span>
-                      </div>
-                      <p className="text-xs text-rose-800 leading-relaxed">{d.description}</p>
-                      <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-600 pt-1 border-t border-rose-200/60">
-                        <span className="font-mono bg-white px-2 py-0.5 rounded border border-slate-200">
-                          {d.legalBasis}
-                        </span>
-                        <span className="font-semibold text-amber-800">Ação: {d.remedyAction}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 text-slate-500 text-xs text-center">
-                  Sem documentos carregados para auditoria desta unidade.
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end pt-2 border-t border-slate-100">
-              <button
-                onClick={() => setSelectedUnitDetail(null)}
-                className="px-5 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
-              >
-                Fechar
-              </button>
-            </div>
-          </div>
         </div>
       )}
 

@@ -2,8 +2,16 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { OperationLaunch, CommandBudget, WeeklyBatchConsolidation, OrdinancePeriod, CommandUnit } from '../types';
 import { LegislationDocument, CpiExecutiveSummary } from '../data/legislationData';
-import { formatCurrencyBRL, formatInteger } from '../utils/formatters';
+import {
+  formatCurrencyBRL,
+  formatInteger,
+  formatValorTotal,
+  formatValorExecutado,
+  formatValorDisponivel,
+  formatJoeDisponivel,
+} from '../utils/formatters';
 import { formatCommandDisplay, sortOperationsOfficial } from './excelService';
+import { OFFICIAL_COMMAND_CODES, normalizeCommandName } from '../utils/commandUtils';
 
 export const pdfService = {
   // Official Portaria PDF Generator (Primeiro Anexo)
@@ -664,68 +672,117 @@ export const pdfService = {
 
     // 2. QUADRO RESUMO CPI (IF UNIFIED OR SUMMARY_CPI)
     if (reportType === 'UNIFIED' || reportType === 'SUMMARY_CPI') {
-      const standardCodes = [
-        'CPAI-1',
-        'CPAI-2',
-        'CPAI-3',
-        'CPAI-4',
-        'CPAI-5',
-        'CPAI-6',
-        'CPAI-7',
-        'CPAI-8',
-        'CPAI-9',
-      ];
+      const standardCodes = [...OFFICIAL_COMMAND_CODES];
+
+      const defaultDisponibilizado: Record<string, { val: number; joes: number }> = {
+        'CPI': { val: 10500, joes: 30 },
+        'CPA/I-1': { val: 65100, joes: 186 },
+        'CPA/I-2': { val: 65100, joes: 186 },
+        'CPA/I-3': { val: 105000, joes: 300 },
+        'CPA/I-4': { val: 65100, joes: 186 },
+        'CPA/I-5': { val: 80500, joes: 230 },
+        'CPA/I-6': { val: 59500, joes: 170 },
+        'CPA/I-7': { val: 65100, joes: 186 },
+        'CPA/I-8': { val: 65100, joes: 186 },
+        'CPA/I-9': { val: 79100, joes: 226 },
+      };
 
       const sumMap: Record<string, number> = {};
+      const sumJoeMap: Record<string, number> = {};
       standardCodes.forEach((code) => {
         sumMap[code] = 0;
+        sumJoeMap[code] = 0;
       });
 
-      let totalGeralCPI = 0;
       sortedOps.forEach((op) => {
-        const formatted = formatCommandDisplay(op.commandId);
+        const formatted = normalizeCommandName(op.commandId);
         const val = Number(op.totalValue) || 0;
-        totalGeralCPI += val;
+        const joes = Number(op.officersCount) || 0;
         if (sumMap[formatted] !== undefined) {
           sumMap[formatted] += val;
+          sumJoeMap[formatted] += joes;
         } else {
-          const match = standardCodes.find((sc) => formatted.includes(sc.replace('CPAI-', '')));
+          const match = standardCodes.find((sc) => normalizeCommandName(formatted) === sc);
           if (match) {
             sumMap[match] += val;
+            sumJoeMap[match] += joes;
           }
         }
       });
 
       // If unified and page is nearly full, add new page
-      if (reportType === 'UNIFIED' && currentY > 120) {
+      if (reportType === 'UNIFIED' && currentY > 110) {
         doc.addPage('landscape');
         currentY = 20;
       }
 
-      // Center the table on page
-      const tableWidth = 140;
-      const marginX = (pageWidth - tableWidth) / 2;
+      // Center the table on page (width 266mm, margins 15.5mm on 297mm page)
+      const marginX = 15.5;
 
-      const resumoBody = standardCodes.map((code) => [
-        code,
-        formatCurrencyBRL(sumMap[code] || 0),
-      ]);
+      let pTotDisp = 0;
+      let pTotQJoe = 0;
+      let pTotExec = 0;
+      let pTotQExec = 0;
+
+      const resumoBody = standardCodes.map((code) => {
+        const def = defaultDisponibilizado[code] || { val: 0, joes: 0 };
+        const valTotal = def.val;
+        const quantJoe = def.joes;
+        const valExec = sumMap[code] || 0;
+        const quantExec = sumJoeMap[code] || 0;
+        const valDisp = valTotal - valExec;
+        const quantDisp = quantJoe - quantExec;
+
+        pTotDisp += valTotal;
+        pTotQJoe += quantJoe;
+        pTotExec += valExec;
+        pTotQExec += quantExec;
+
+        return [
+          code,
+          formatValorTotal(valTotal),
+          quantJoe.toString(),
+          formatValorExecutado(valExec),
+          quantExec.toString(),
+          formatValorDisponivel(valDisp),
+          formatJoeDisponivel(quantDisp),
+        ];
+      });
+
+      const pTotDispVal = pTotDisp - pTotExec;
+      const pTotQDisp = pTotQJoe - pTotQExec;
 
       autoTable(doc, {
         startY: currentY,
         margin: { left: marginX, right: marginX },
         head: [
-          [{ content: 'CPI', colSpan: 2, styles: { halign: 'center', fontSize: 11, fontStyle: 'bold', fillColor: [255, 255, 255], textColor: [15, 23, 42] } }],
-          [{ content: 'QUADRO RESUMO CPI', colSpan: 2, styles: { halign: 'center', fontSize: 9.5, fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [15, 23, 42] } }],
-          ['UNIDADE', 'VALOR'],
+          [{ content: 'CPI', colSpan: 7, styles: { halign: 'center', fontSize: 11, fontStyle: 'bold', fillColor: [255, 255, 255], textColor: [15, 23, 42] } }],
+          [{ content: 'QUADRO RESUMO CPI', colSpan: 7, styles: { halign: 'center', fontSize: 9.5, fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [15, 23, 42] } }],
+          [
+            'UNIDADE',
+            'VALOR TOTAL DISPONIBILIZADO',
+            'QUANT. JOE',
+            'VALOR EXECUTADO',
+            'QUANT. JOE EXECUTADA',
+            'VALOR DISPONÍVEL',
+            'QUANT. JOE DISPONÍVEL',
+          ],
         ],
         body: resumoBody,
-        foot: [['TOTAL GERAL CPI', formatCurrencyBRL(totalGeralCPI)]],
+        foot: [[
+          'TOTAL GERAL CPI',
+          formatValorTotal(pTotDisp),
+          pTotQJoe.toString(),
+          formatValorExecutado(pTotExec),
+          pTotQExec.toString(),
+          formatValorDisponivel(pTotDispVal),
+          formatJoeDisponivel(pTotQDisp),
+        ]],
         theme: 'grid',
         headStyles: {
-          fillColor: [226, 232, 240],
+          fillColor: [203, 213, 225],
           textColor: [15, 23, 42],
-          fontSize: 8.5,
+          fontSize: 7.5,
           fontStyle: 'bold',
           halign: 'center',
           valign: 'middle',
@@ -733,7 +790,7 @@ export const pdfService = {
           lineWidth: 0.3,
         },
         bodyStyles: {
-          fontSize: 8,
+          fontSize: 7.5,
           textColor: [15, 23, 42],
           halign: 'center',
           valign: 'middle',
@@ -741,14 +798,19 @@ export const pdfService = {
           lineWidth: 0.2,
         },
         columnStyles: {
-          0: { halign: 'center', fontStyle: 'bold', cellWidth: 70 },
-          1: { halign: 'center', fontStyle: 'normal', cellWidth: 70 },
+          0: { halign: 'center', fontStyle: 'bold', cellWidth: 26 },
+          1: { halign: 'center', cellWidth: 46 },
+          2: { halign: 'center', cellWidth: 26 },
+          3: { halign: 'center', fontStyle: 'bold', cellWidth: 44 },
+          4: { halign: 'center', cellWidth: 36 },
+          5: { halign: 'center', cellWidth: 44 },
+          6: { halign: 'center', cellWidth: 44 },
         },
         footStyles: {
-          fillColor: [226, 232, 240],
+          fillColor: [203, 213, 225],
           textColor: [15, 23, 42],
           fontStyle: 'bold',
-          fontSize: 9,
+          fontSize: 8,
           halign: 'center',
           valign: 'middle',
           lineColor: [30, 41, 59],

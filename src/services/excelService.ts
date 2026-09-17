@@ -75,100 +75,200 @@ export const excelService = {
     // Standard official list CPI, CPA/I-1 to CPA/I-9
     const standardCodes = [...OFFICIAL_COMMAND_CODES];
 
+    const defaultDisponibilizado: Record<string, { val: number; joes: number }> = {
+      'CPI': { val: 10500, joes: 30 },
+      'CPA/I-1': { val: 65100, joes: 186 },
+      'CPA/I-2': { val: 65100, joes: 186 },
+      'CPA/I-3': { val: 105000, joes: 300 },
+      'CPA/I-4': { val: 65100, joes: 186 },
+      'CPA/I-5': { val: 80500, joes: 230 },
+      'CPA/I-6': { val: 59500, joes: 170 },
+      'CPA/I-7': { val: 65100, joes: 186 },
+      'CPA/I-8': { val: 65100, joes: 186 },
+      'CPA/I-9': { val: 79100, joes: 226 },
+    };
+
     const sumMap: Record<string, number> = {};
+    const sumJoeMap: Record<string, number> = {};
     standardCodes.forEach((code) => {
       sumMap[code] = 0;
+      sumJoeMap[code] = 0;
     });
 
-    let totalGeral = 0;
     operations.forEach((op) => {
       const formatted = normalizeCommandName(op.commandId);
       const val = Number(op.totalValue) || 0;
-      totalGeral += val;
+      const joes = Number(op.officersCount) || 0;
       if (sumMap[formatted] !== undefined) {
         sumMap[formatted] += val;
+        sumJoeMap[formatted] += joes;
       } else {
         const match = standardCodes.find((sc) => normalizeCommandName(formatted) === sc);
         if (match) {
           sumMap[match] += val;
+          sumJoeMap[match] += joes;
         }
       }
     });
 
     ws.columns = [
       { width: 4 },  // Margin column A
-      { width: 28 }, // UNIDADE B
-      { width: 28 }, // VALOR C
+      { width: 16 }, // UNIDADE B
+      { width: 30 }, // VALOR TOTAL DISPONIBILIZADO C
+      { width: 16 }, // QUANT. JOE D
+      { width: 22 }, // VALOR EXECUTADO E
+      { width: 24 }, // QUANT. JOE EXECUTADA F
+      { width: 22 }, // VALOR DISPONÍVEL G
+      { width: 24 }, // QUANT. JOE DISPONÍVEL H
     ];
 
     // Blank top
     ws.addRow([]);
 
     // 1. Header Box: CPI
-    const rowCPI = ws.addRow(['', 'CPI', '']);
-    ws.mergeCells('B2:C2');
+    const rowCPI = ws.addRow(['', 'CPI', '', '', '', '', '', '']);
+    ws.mergeCells('B2:H2');
     rowCPI.getCell(2).font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FF0F172A' } };
     rowCPI.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
     rowCPI.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
-    rowCPI.getCell(2).border = darkBorder;
-    rowCPI.getCell(3).border = darkBorder;
+    for (let c = 2; c <= 8; c++) rowCPI.getCell(c).border = darkBorder;
     rowCPI.height = 28;
 
     // 2. Subheader Banner: QUADRO RESUMO CPI
-    const rowBanner = ws.addRow(['', 'QUADRO RESUMO CPI', '']);
-    ws.mergeCells('B3:C3');
+    const rowBanner = ws.addRow(['', 'QUADRO RESUMO CPI', '', '', '', '', '', '']);
+    ws.mergeCells('B3:H3');
     rowBanner.getCell(2).font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF0F172A' } };
     rowBanner.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
     rowBanner.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
-    rowBanner.getCell(2).border = darkBorder;
-    rowBanner.getCell(3).border = darkBorder;
+    for (let c = 2; c <= 8; c++) rowBanner.getCell(c).border = darkBorder;
     rowBanner.height = 24;
 
-    // 3. Table Column Headers: UNIDADE / VALOR
-    const rowHeaders = ws.addRow(['', 'UNIDADE', 'VALOR']);
-    [2, 3].forEach((colIdx) => {
-      const cell = rowHeaders.getCell(colIdx);
-      cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF0F172A' } };
-      cell.alignment = { horizontal: 'center', vertical: 'middle' };
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+    // 3. Table Column Headers
+    const headers = [
+      '',
+      'UNIDADE',
+      'VALOR TOTAL DISPONIBILIZADO',
+      'QUANT. JOE',
+      'VALOR EXECUTADO',
+      'QUANT. JOE EXECUTADA',
+      'VALOR DISPONÍVEL',
+      'QUANT. JOE DISPONÍVEL',
+    ];
+    const rowHeaders = ws.addRow(headers);
+    for (let c = 2; c <= 8; c++) {
+      const cell = rowHeaders.getCell(c);
+      cell.font = { name: 'Arial', size: 9.5, bold: true, color: { argb: 'FF0F172A' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFCBD5E1' } };
       cell.border = thinBorder;
-    });
-    rowHeaders.height = 22;
+    }
+    rowHeaders.height = 26;
 
-    // 4. Rows CPAI-1 to CPAI-9
+    let totDisp = 0;
+    let totQJoe = 0;
+    let totExec = 0;
+    let totQExec = 0;
+
+    // 4. Rows CPI, CPA/I-1 to CPA/I-9
     standardCodes.forEach((code) => {
-      const amount = sumMap[code];
-      const row = ws.addRow(['', code, amount]);
-      const cellCode = row.getCell(2);
-      const cellVal = row.getCell(3);
+      const def = defaultDisponibilizado[code] || { val: 0, joes: 0 };
+      const valTotal = def.val;
+      const quantJoe = def.joes;
+      const valExec = sumMap[code] || 0;
+      const quantExec = sumJoeMap[code] || 0;
+      const valDisp = valTotal - valExec;
+      const quantDisp = quantJoe - quantExec;
 
+      totDisp += valTotal;
+      totQJoe += quantJoe;
+      totExec += valExec;
+      totQExec += quantExec;
+
+      const row = ws.addRow(['', code, valTotal, quantJoe, valExec, quantExec, valDisp, quantDisp]);
+      row.height = 20;
+
+      // Col B: UNIDADE
+      const cellCode = row.getCell(2);
       cellCode.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF1E293B' } };
       cellCode.alignment = { horizontal: 'center', vertical: 'middle' };
       cellCode.border = thinBorder;
 
-      cellVal.font = { name: 'Arial', size: 10, color: { argb: 'FF0F172A' } };
-      cellVal.alignment = { horizontal: 'center', vertical: 'middle' };
-      cellVal.numFmt = '"R$"\\ #,##0.00';
-      cellVal.border = thinBorder;
-      row.height = 20;
+      // Col C: VALOR TOTAL DISPONIBILIZADO
+      const cellTot = row.getCell(3);
+      cellTot.font = { name: 'Arial', size: 10, color: { argb: 'FF0F172A' } };
+      cellTot.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellTot.numFmt = '#,##0.00';
+      cellTot.border = thinBorder;
+
+      // Col D: QUANT. JOE
+      const cellQJoe = row.getCell(4);
+      cellQJoe.font = { name: 'Arial', size: 10, color: { argb: 'FF0F172A' } };
+      cellQJoe.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellQJoe.border = thinBorder;
+
+      // Col E: VALOR EXECUTADO
+      const cellExec = row.getCell(5);
+      cellExec.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF0F172A' } };
+      cellExec.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellExec.numFmt = '"R$"\\ #,##0.00';
+      cellExec.border = thinBorder;
+
+      // Col F: QUANT. JOE EXECUTADA
+      const cellQExec = row.getCell(6);
+      cellQExec.font = { name: 'Arial', size: 10, color: { argb: 'FF0F172A' } };
+      cellQExec.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellQExec.border = thinBorder;
+
+      // Col G: VALOR DISPONÍVEL
+      const cellDisp = row.getCell(7);
+      cellDisp.font = {
+        name: 'Arial',
+        size: 10,
+        bold: valDisp < 0,
+        color: { argb: valDisp < 0 ? 'FFB91C1C' : 'FF0F172A' },
+      };
+      cellDisp.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellDisp.numFmt = '#,##0.00;-#,##0.00;"0,00"';
+      cellDisp.border = thinBorder;
+
+      // Col H: QUANT. JOE DISPONÍVEL
+      const cellQDisp = row.getCell(8);
+      cellQDisp.font = {
+        name: 'Arial',
+        size: 10,
+        bold: quantDisp < 0,
+        color: { argb: quantDisp < 0 ? 'FFB91C1C' : 'FF0F172A' },
+      };
+      cellQDisp.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellQDisp.border = thinBorder;
     });
 
+    const totDispVal = totDisp - totExec;
+    const totQDisp = totQJoe - totQExec;
+
     // 5. Total Row: TOTAL GERAL CPI
-    const rowTotal = ws.addRow(['', 'TOTAL GERAL CPI', totalGeral]);
-    const cellTotalLabel = rowTotal.getCell(2);
-    const cellTotalVal = rowTotal.getCell(3);
-
-    cellTotalLabel.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF0F172A' } };
-    cellTotalLabel.alignment = { horizontal: 'center', vertical: 'middle' };
-    cellTotalLabel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
-    cellTotalLabel.border = darkBorder;
-
-    cellTotalVal.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF0F172A' } };
-    cellTotalVal.alignment = { horizontal: 'center', vertical: 'middle' };
-    cellTotalVal.numFmt = '"R$"\\ #,##0.00';
-    cellTotalVal.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
-    cellTotalVal.border = darkBorder;
+    const rowTotal = ws.addRow([
+      '',
+      'TOTAL GERAL CPI',
+      totDisp,
+      totQJoe,
+      totExec,
+      totQExec,
+      totDispVal,
+      totQDisp,
+    ]);
     rowTotal.height = 26;
+
+    for (let c = 2; c <= 8; c++) {
+      const cell = rowTotal.getCell(c);
+      cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF0F172A' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFCBD5E1' } };
+      cell.border = darkBorder;
+    }
+    rowTotal.getCell(3).numFmt = '#,##0.00';
+    rowTotal.getCell(5).numFmt = '"R$"\\ #,##0.00';
+    rowTotal.getCell(7).numFmt = '#,##0.00;-#,##0.00;"0,00"';
 
     const ordNum = ordinance?.number ? ordinance.number.replace(/[^a-zA-Z0-9]/g, '_') : 'GERAL';
     const dateStamp = new Date().toISOString().split('T')[0];
@@ -317,42 +417,47 @@ export const excelService = {
     ws.addRow([]);
     ws.addRow([]);
 
-    // --- 5. QUADRO RESUMO CPI (PRINT 02) ---
-    const standardCodes = [
-      'CPAI-1',
-      'CPAI-2',
-      'CPAI-3',
-      'CPAI-4',
-      'CPAI-5',
-      'CPAI-6',
-      'CPAI-7',
-      'CPAI-8',
-      'CPAI-9',
-    ];
+    // --- 5. QUADRO RESUMO CPI (PRINT 02 - 7 COLUNAS OFICIAIS) ---
+    const standardCodes = [...OFFICIAL_COMMAND_CODES];
+
+    const defaultDisponibilizado: Record<string, { val: number; joes: number }> = {
+      'CPI': { val: 10500, joes: 30 },
+      'CPA/I-1': { val: 65100, joes: 186 },
+      'CPA/I-2': { val: 65100, joes: 186 },
+      'CPA/I-3': { val: 105000, joes: 300 },
+      'CPA/I-4': { val: 65100, joes: 186 },
+      'CPA/I-5': { val: 80500, joes: 230 },
+      'CPA/I-6': { val: 59500, joes: 170 },
+      'CPA/I-7': { val: 65100, joes: 186 },
+      'CPA/I-8': { val: 65100, joes: 186 },
+      'CPA/I-9': { val: 79100, joes: 226 },
+    };
 
     const sumMap: Record<string, number> = {};
+    const sumJoeMap: Record<string, number> = {};
     standardCodes.forEach((code) => {
       sumMap[code] = 0;
+      sumJoeMap[code] = 0;
     });
 
-    let totalGeralCPI = 0;
     sortedOps.forEach((op) => {
-      const formatted = formatCommandDisplay(op.commandId);
+      const formatted = normalizeCommandName(op.commandId);
       const val = Number(op.totalValue) || 0;
-      totalGeralCPI += val;
+      const joes = Number(op.officersCount) || 0;
       if (sumMap[formatted] !== undefined) {
         sumMap[formatted] += val;
+        sumJoeMap[formatted] += joes;
       } else {
-        const match = standardCodes.find((sc) => formatted.includes(sc.replace('CPAI-', '')));
+        const match = standardCodes.find((sc) => normalizeCommandName(formatted) === sc);
         if (match) {
           sumMap[match] += val;
+          sumJoeMap[match] += joes;
         }
       }
     });
 
-    // Centered columns for summary table
-    const startCol = Math.max(Math.floor(activeCols.length / 2) - 1, 2);
-    const endCol = startCol + 1;
+    const startCol = 2;
+    const endCol = 8;
 
     // Header CPI
     const rowCPI = ws.addRow([]);
@@ -364,8 +469,7 @@ export const excelService = {
     cellCPI.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FF0F172A' } };
     cellCPI.alignment = { horizontal: 'center', vertical: 'middle' };
     cellCPI.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
-    cellCPI.border = darkBorder;
-    ws.getCell(startRowIdx, endCol).border = darkBorder;
+    for (let c = startCol; c <= endCol; c++) ws.getCell(startRowIdx, c).border = darkBorder;
 
     // Subheader QUADRO RESUMO CPI
     const rowBanner = ws.addRow([]);
@@ -377,66 +481,135 @@ export const excelService = {
     cellBanner.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF0F172A' } };
     cellBanner.alignment = { horizontal: 'center', vertical: 'middle' };
     cellBanner.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
-    cellBanner.border = darkBorder;
-    ws.getCell(bannerRowIdx, endCol).border = darkBorder;
+    for (let c = startCol; c <= endCol; c++) ws.getCell(bannerRowIdx, c).border = darkBorder;
 
-    // Columns UNIDADE / VALOR
+    // Column Headers
     const rowResumoHeaders = ws.addRow([]);
-    rowResumoHeaders.height = 22;
-    const cellH1 = rowResumoHeaders.getCell(startCol);
-    const cellH2 = rowResumoHeaders.getCell(endCol);
+    rowResumoHeaders.height = 26;
+    const colLabels = [
+      'UNIDADE',
+      'VALOR TOTAL DISPONIBILIZADO',
+      'QUANT. JOE',
+      'VALOR EXECUTADO',
+      'QUANT. JOE EXECUTADA',
+      'VALOR DISPONÍVEL',
+      'QUANT. JOE DISPONÍVEL',
+    ];
+    colLabels.forEach((label, idx) => {
+      const cell = rowResumoHeaders.getCell(startCol + idx);
+      cell.value = label;
+      cell.font = { name: 'Arial', size: 9.5, bold: true, color: { argb: 'FF0F172A' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFCBD5E1' } };
+      cell.border = thinBorder;
+    });
 
-    cellH1.value = 'UNIDADE';
-    cellH1.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF0F172A' } };
-    cellH1.alignment = { horizontal: 'center', vertical: 'middle' };
-    cellH1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
-    cellH1.border = thinBorder;
+    let sTotDisp = 0;
+    let sTotQJoe = 0;
+    let sTotExec = 0;
+    let sTotQExec = 0;
 
-    cellH2.value = 'VALOR';
-    cellH2.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF0F172A' } };
-    cellH2.alignment = { horizontal: 'center', vertical: 'middle' };
-    cellH2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
-    cellH2.border = thinBorder;
-
-    // Rows CPAI-1 to CPAI-9
+    // Rows CPI, CPA/I-1 to CPA/I-9
     standardCodes.forEach((code) => {
-      const amount = sumMap[code];
+      const def = defaultDisponibilizado[code] || { val: 0, joes: 0 };
+      const valTotal = def.val;
+      const quantJoe = def.joes;
+      const valExec = sumMap[code] || 0;
+      const quantExec = sumJoeMap[code] || 0;
+      const valDisp = valTotal - valExec;
+      const quantDisp = quantJoe - quantExec;
+
+      sTotDisp += valTotal;
+      sTotQJoe += quantJoe;
+      sTotExec += valExec;
+      sTotQExec += quantExec;
+
       const row = ws.addRow([]);
       row.height = 20;
 
       const c1 = row.getCell(startCol);
-      const c2 = row.getCell(endCol);
-
       c1.value = code;
       c1.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF1E293B' } };
       c1.alignment = { horizontal: 'center', vertical: 'middle' };
       c1.border = thinBorder;
 
-      c2.value = amount;
+      const c2 = row.getCell(startCol + 1);
+      c2.value = valTotal;
       c2.font = { name: 'Arial', size: 10, color: { argb: 'FF0F172A' } };
       c2.alignment = { horizontal: 'center', vertical: 'middle' };
-      c2.numFmt = '"R$"\\ #,##0.00';
+      c2.numFmt = '#,##0.00';
       c2.border = thinBorder;
+
+      const c3 = row.getCell(startCol + 2);
+      c3.value = quantJoe;
+      c3.font = { name: 'Arial', size: 10, color: { argb: 'FF0F172A' } };
+      c3.alignment = { horizontal: 'center', vertical: 'middle' };
+      c3.border = thinBorder;
+
+      const c4 = row.getCell(startCol + 3);
+      c4.value = valExec;
+      c4.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF0F172A' } };
+      c4.alignment = { horizontal: 'center', vertical: 'middle' };
+      c4.numFmt = '"R$"\\ #,##0.00';
+      c4.border = thinBorder;
+
+      const c5 = row.getCell(startCol + 4);
+      c5.value = quantExec;
+      c5.font = { name: 'Arial', size: 10, color: { argb: 'FF0F172A' } };
+      c5.alignment = { horizontal: 'center', vertical: 'middle' };
+      c5.border = thinBorder;
+
+      const c6 = row.getCell(startCol + 5);
+      c6.value = valDisp;
+      c6.font = {
+        name: 'Arial',
+        size: 10,
+        bold: valDisp < 0,
+        color: { argb: valDisp < 0 ? 'FFB91C1C' : 'FF0F172A' },
+      };
+      c6.alignment = { horizontal: 'center', vertical: 'middle' };
+      c6.numFmt = '#,##0.00;-#,##0.00;"0,00"';
+      c6.border = thinBorder;
+
+      const c7 = row.getCell(startCol + 6);
+      c7.value = quantDisp;
+      c7.font = {
+        name: 'Arial',
+        size: 10,
+        bold: quantDisp < 0,
+        color: { argb: quantDisp < 0 ? 'FFB91C1C' : 'FF0F172A' },
+      };
+      c7.alignment = { horizontal: 'center', vertical: 'middle' };
+      c7.border = thinBorder;
     });
+
+    const sTotDispVal = sTotDisp - sTotExec;
+    const sTotQDisp = sTotQJoe - sTotQExec;
 
     // TOTAL GERAL CPI
     const rowFinalTotal = ws.addRow([]);
     rowFinalTotal.height = 26;
-    const cTotalLabel = rowFinalTotal.getCell(startCol);
-    const cTotalVal = rowFinalTotal.getCell(endCol);
 
-    cTotalLabel.value = 'TOTAL GERAL CPI';
-    cTotalLabel.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF0F172A' } };
-    cTotalLabel.alignment = { horizontal: 'center', vertical: 'middle' };
-    cTotalLabel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
-    cTotalLabel.border = darkBorder;
-
-    cTotalVal.value = totalGeralCPI;
-    cTotalVal.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF0F172A' } };
-    cTotalVal.alignment = { horizontal: 'center', vertical: 'middle' };
-    cTotalVal.numFmt = '"R$"\\ #,##0.00';
-    cTotalVal.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
-    cTotalVal.border = darkBorder;
+    const totVals = [
+      'TOTAL GERAL CPI',
+      sTotDisp,
+      sTotQJoe,
+      sTotExec,
+      sTotQExec,
+      sTotDispVal,
+      sTotQDisp,
+    ];
+    totVals.forEach((val, idx) => {
+      const cell = rowFinalTotal.getCell(startCol + idx);
+      cell.value = val;
+      cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF0F172A' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFCBD5E1' } };
+      cell.border = darkBorder;
+    });
+    rowFinalTotal.getCell(startCol + 1).numFmt = '#,##0.00';
+    rowFinalTotal.getCell(startCol + 3).numFmt = '"R$"\\ #,##0.00';
+    rowFinalTotal.getCell(startCol + 5).numFmt = '#,##0.00;-#,##0.00;"0,00"';
 
     const ordNum = ordinance?.number ? ordinance.number.replace(/[^a-zA-Z0-9]/g, '_') : 'GERAL';
     const dateStamp = new Date().toISOString().split('T')[0];

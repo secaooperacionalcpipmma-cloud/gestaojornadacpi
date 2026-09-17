@@ -61,6 +61,56 @@ export interface ComprehensiveDiagnosticReport {
   };
 }
 
+// Safe date formatting helpers to prevent Postgres type rejection
+export function toValidIsoDate(dateStr?: string): string {
+  if (!dateStr || typeof dateStr !== 'string') {
+    return new Date().toISOString().split('T')[0];
+  }
+  const trimmed = dateStr.trim();
+  const brMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (brMatch) {
+    const day = brMatch[1].padStart(2, '0');
+    const month = brMatch[2].padStart(2, '0');
+    const year = brMatch[3];
+    return `${year}-${month}-${day}`;
+  }
+  const isoMatch = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (isoMatch) {
+    const year = isoMatch[1];
+    const month = isoMatch[2].padStart(2, '0');
+    const day = isoMatch[3].padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  const parsed = new Date(trimmed);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toISOString().split('T')[0];
+  }
+  return new Date().toISOString().split('T')[0];
+}
+
+export function toValidIsoDateTime(dateStr?: string): string {
+  if (!dateStr || typeof dateStr !== 'string') {
+    return new Date().toISOString();
+  }
+  const trimmed = dateStr.trim();
+  const parsed = new Date(trimmed);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toISOString();
+  }
+  const brMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (brMatch) {
+    const day = parseInt(brMatch[1], 10);
+    const month = parseInt(brMatch[2], 10) - 1;
+    const year = parseInt(brMatch[3], 10);
+    const hour = parseInt(brMatch[4] || '0', 10);
+    const min = parseInt(brMatch[5] || '0', 10);
+    const sec = parseInt(brMatch[6] || '0', 10);
+    const d = new Date(year, month, day, hour, min, sec);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+  return new Date().toISOString();
+}
+
 class SupabaseService {
   private status: SupabaseSyncStatus = 'INITIALIZING';
   private statusListeners: Array<(status: SupabaseSyncStatus, errorMsg?: string) => void> = [];
@@ -347,53 +397,56 @@ class SupabaseService {
     };
   }
 
-  // Map OperationLaunch to database row
+  // Map OperationLaunch to database row with bulletproof type sanitization
   private mapOperationToDb(op: OperationLaunch): any {
-    let cleanServiceDate = op.serviceDate || new Date().toISOString().split('T')[0];
-    if (cleanServiceDate && cleanServiceDate.includes('T')) {
-      cleanServiceDate = cleanServiceDate.split('T')[0];
-    }
+    const cleanServiceDate = toValidIsoDate(op.serviceDate);
+    const cleanCreatedAt = toValidIsoDateTime(op.createdAt);
+    const cleanUpdatedAt = toValidIsoDateTime(op.updatedAt);
+
+    const officersCount = Math.max(1, Number(op.officersCount) || 1);
+    const unitValue = Number(op.unitValue) > 0 ? Number(op.unitValue) : 350;
+    const totalValue = Number(op.totalValue) || (officersCount * unitValue);
 
     const row: any = {
-      id: op.id,
-      launch_number: op.launchNumber || op.orderNumber || `${Math.floor(10000 + Math.random() * 90000)}`,
-      ordinance_id: op.ordinanceId || 'ord-122-2026',
-      command_id: op.commandId,
-      sub_unit: op.subUnit,
-      event_name: op.eventName,
-      event_subtext: op.eventSubtext || null,
+      id: String(op.id || `op-${Date.now()}`),
+      launch_number: String(op.launchNumber || op.orderNumber || `${Math.floor(10000 + Math.random() * 90000)}`),
+      ordinance_id: String(op.ordinanceId || 'ord-122-2026'),
+      command_id: String(op.commandId || 'CPI'),
+      sub_unit: String(op.subUnit || `${op.commandId || 'CPI'} (Direção)`),
+      event_name: String(op.eventName || 'Operação Policial'),
+      event_subtext: op.eventSubtext ? String(op.eventSubtext) : null,
       service_date: cleanServiceDate,
-      start_time: op.startTime || null,
-      end_time: op.endTime || null,
-      duration_hours: op.calculatedDurationHours || 6,
-      officers_count: Number(op.officersCount) || 1,
-      joes_per_officer: Number(op.joesPerOfficer) || 1,
-      unit_value: Number(op.unitValue) || 350,
-      total_amount: Number(op.totalValue) || (Number(op.officersCount) || 1) * (Number(op.unitValue) || 350),
-      total_value: Number(op.totalValue) || (Number(op.officersCount) || 1) * (Number(op.unitValue) || 350),
-      status: op.status || 'APROVADO',
-      sei_process_number: op.seiProcessNumber || null,
-      sei_document_number: op.seiDocumentNumber || null,
-      order_number: op.orderNumber || null,
-      order_type: op.orderType || 'ORDEM_DE_SERVICO',
-      service_order_link: op.serviceOrderLink || null,
+      start_time: op.startTime ? String(op.startTime) : '20h às 02h',
+      end_time: op.endTime ? String(op.endTime) : null,
+      duration_hours: Number(op.calculatedDurationHours) > 0 ? Number(op.calculatedDurationHours) : 6,
+      officers_count: officersCount,
+      joes_per_officer: Number(op.joesPerOfficer) > 0 ? Number(op.joesPerOfficer) : 1,
+      unit_value: unitValue,
+      total_amount: totalValue,
+      total_value: totalValue,
+      status: String(op.status || 'APROVADO'),
+      sei_process_number: op.seiProcessNumber ? String(op.seiProcessNumber) : '2026.190110.00000',
+      sei_document_number: op.seiDocumentNumber ? String(op.seiDocumentNumber) : null,
+      order_number: op.orderNumber ? String(op.orderNumber) : null,
+      order_type: op.orderType ? String(op.orderType) : 'ORDEM_DE_SERVICO',
+      service_order_link: op.serviceOrderLink ? String(op.serviceOrderLink) : null,
       authorize_excess: Boolean(op.authorizeExcess),
-      officers: op.officers || [],
-      location: op.location || '',
-      notes: op.notes || '',
-      justification: op.justification || null,
-      rejection_reason: op.rejectionReason || null,
-      correction_feedback: op.correctionFeedback || null,
-      created_by: op.createdBy || null,
-      created_at: op.createdAt || new Date().toISOString(),
-      updated_at: op.updatedAt || new Date().toISOString(),
+      officers: Array.isArray(op.officers) ? op.officers : [],
+      location: op.location ? String(op.location) : '',
+      notes: op.notes ? String(op.notes) : '',
+      justification: op.justification ? String(op.justification) : null,
+      rejection_reason: op.rejectionReason ? String(op.rejectionReason) : null,
+      correction_feedback: op.correctionFeedback ? String(op.correctionFeedback) : null,
+      created_by: op.createdBy ? String(op.createdBy) : 'Sistema CPI',
+      created_at: cleanCreatedAt,
+      updated_at: cleanUpdatedAt,
     };
 
-    if (op.checklist) {
+    if (op.checklist && typeof op.checklist === 'object') {
       row.checklist = op.checklist;
     }
     if (op.batchConsolidationId) {
-      row.batch_consolidation_id = op.batchConsolidationId;
+      row.batch_consolidation_id = String(op.batchConsolidationId);
     }
 
     return row;
@@ -458,7 +511,8 @@ class SupabaseService {
           }
         }
 
-        // Other non-recoverable error (e.g. permission/constraint)
+        // Wait slightly on retry for network resilience
+        await new Promise((resolve) => setTimeout(resolve, 300));
         break;
       }
 
@@ -472,17 +526,72 @@ class SupabaseService {
     }
   }
 
+  // Batch upsert operations with chunking and individual fallbacks
+  public async upsertOperationsBatch(operations: OperationLaunch[]): Promise<{
+    success: boolean;
+    total: number;
+    synced: number;
+    errors: string[];
+  }> {
+    if (!operations || operations.length === 0) {
+      return { success: true, total: 0, synced: 0, errors: [] };
+    }
+
+    this.setStatus('SYNCING');
+    let synced = 0;
+    const errors: string[] = [];
+
+    // Process individually with resilience to ensure one bad item never halts the sync
+    for (const op of operations) {
+      const res = await this.upsertOperation(op);
+      if (res.success) {
+        synced++;
+      } else {
+        errors.push(`Operação "${op.eventName}" (${op.id}): ${res.error || 'Erro desconhecido'}`);
+      }
+    }
+
+    this.setStatus('CONNECTED');
+    return {
+      success: errors.length === 0,
+      total: operations.length,
+      synced,
+      errors,
+    };
+  }
+
   public async deleteOperation(id: string): Promise<boolean> {
     try {
       this.setStatus('SYNCING');
       const { error } = await supabase.from('operation_launches').delete().eq('id', id);
       if (error) {
+        console.warn('Erro ao excluir lançamento no Supabase:', error.message);
         this.setStatus('CONNECTED');
         return false;
       }
       this.setStatus('CONNECTED');
       return true;
-    } catch {
+    } catch (err: any) {
+      console.warn('Exceção ao excluir lançamento no Supabase:', err);
+      this.setStatus('CONNECTED');
+      return false;
+    }
+  }
+
+  public async deleteOperations(ids: string[]): Promise<boolean> {
+    if (!ids || ids.length === 0) return true;
+    try {
+      this.setStatus('SYNCING');
+      const { error } = await supabase.from('operation_launches').delete().in('id', ids);
+      if (error) {
+        console.warn('Erro ao excluir lote de lançamentos no Supabase:', error.message);
+        this.setStatus('CONNECTED');
+        return false;
+      }
+      this.setStatus('CONNECTED');
+      return true;
+    } catch (err: any) {
+      console.warn('Exceção ao excluir lote de lançamentos no Supabase:', err);
       this.setStatus('CONNECTED');
       return false;
     }

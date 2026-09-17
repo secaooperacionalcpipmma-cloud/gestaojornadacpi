@@ -36,14 +36,16 @@ const STORAGE_KEYS = {
   BUDGETS: 'cpi_pmma_prod_clean_budgets',
   OFFICERS: 'cpi_pmma_prod_clean_officers',
   OPERATIONS: 'cpi_pmma_prod_clean_operations',
+  PENDING_OPS: 'cpi_pmma_prod_clean_pending_sync_operations',
   BATCHES: 'cpi_pmma_prod_clean_batches',
   IRREGULARITIES: 'cpi_pmma_prod_clean_irregularities',
   AUDIT_LOGS: 'cpi_pmma_prod_clean_audit_logs',
+  DELETED_OPS: 'cpi_pmma_prod_deleted_operations_ids',
 };
 
 const SESSION_STORAGE_KEY = 'cpi_pmma_auth_session_user';
 
-// Force logout across all devices / clean old auto-login session keys and legacy test data
+// Force logout across all devices / clean old auto-login session keys
 try {
   sessionStorage.removeItem('cpi_pmma_clean_v5_session_user');
   sessionStorage.removeItem('cpi_pmma_clean_v5_current_user');
@@ -55,58 +57,69 @@ try {
   localStorage.removeItem('cpi_pmma_clean_v6_current_user');
   localStorage.removeItem('cpi_pmma_session_user');
   localStorage.removeItem('cpi_pmma_current_user');
-
-  const legacyPrefixes = [
-    'cpi_pmma_v1',
-    'cpi_pmma_v2',
-    'cpi_pmma_v3',
-    'cpi_pmma_users_v4',
-    'cpi_pmma_operations_v4',
-    'cpi_pmma_budgets_v4',
-    'cpi_pmma_audit_logs_v4',
-    'cpi_pmma_clean_v5',
-    'cpi_pmma_clean_v6',
-  ];
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (k && legacyPrefixes.some((p) => k.startsWith(p))) {
-      localStorage.removeItem(k);
-    }
-  }
 } catch {
   // safe ignore
+}
+
+// Safe date formatting helpers to prevent database rejection
+function toValidIsoDate(dateStr?: string): string {
+  if (!dateStr || typeof dateStr !== 'string') {
+    return new Date().toISOString().split('T')[0];
+  }
+  const trimmed = dateStr.trim();
+  const brMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (brMatch) {
+    const day = brMatch[1].padStart(2, '0');
+    const month = brMatch[2].padStart(2, '0');
+    const year = brMatch[3];
+    return `${year}-${month}-${day}`;
+  }
+  const isoMatch = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (isoMatch) {
+    const year = isoMatch[1];
+    const month = isoMatch[2].padStart(2, '0');
+    const day = isoMatch[3].padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  const parsed = new Date(trimmed);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toISOString().split('T')[0];
+  }
+  return new Date().toISOString().split('T')[0];
+}
+
+function toValidIsoDateTime(dateStr?: string): string {
+  if (!dateStr || typeof dateStr !== 'string') {
+    return new Date().toISOString();
+  }
+  const trimmed = dateStr.trim();
+  const parsed = new Date(trimmed);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toISOString();
+  }
+  const brMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (brMatch) {
+    const day = parseInt(brMatch[1], 10);
+    const month = parseInt(brMatch[2], 10) - 1;
+    const year = parseInt(brMatch[3], 10);
+    const hour = parseInt(brMatch[4] || '0', 10);
+    const min = parseInt(brMatch[5] || '0', 10);
+    const sec = parseInt(brMatch[6] || '0', 10);
+    const d = new Date(year, month, day, hour, min, sec);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+  return new Date().toISOString();
 }
 
 class StorageService {
   private changeListeners: Array<(type?: string) => void> = [];
   private isSupabaseBootstrapped: boolean = false;
+  private isSyncingInBackground: boolean = false;
 
   public async initSupabase(): Promise<boolean> {
-    if (this.isSupabaseBootstrapped) return true;
     try {
       const result = await supabaseService.bootstrapInitialData();
       if (result.loadedFromSupabase) {
-        // OPERATIONS MERGE: Never wipe out local operations
-        const localOps = this.getOperations();
-        if (result.operations && result.operations.length > 0) {
-          const cleanOps = result.operations.filter(
-            (op) => op.id !== 'op-cpai1-teste-10joe'
-          );
-          const mergedOps = [...cleanOps];
-          localOps.forEach((localOp) => {
-            if (!mergedOps.some((o) => o.id === localOp.id)) {
-              mergedOps.push(localOp);
-              supabaseService.upsertOperation(localOp).catch(console.warn);
-            }
-          });
-          this.set(STORAGE_KEYS.OPERATIONS, mergedOps, true);
-        } else if (localOps.length > 0) {
-          // If Supabase has no ops, sync local operations up to Supabase
-          localOps.forEach((localOp) => {
-            supabaseService.upsertOperation(localOp).catch(console.warn);
-          });
-        }
-
         if (result.ordinances && result.ordinances.length > 0) {
           this.set(STORAGE_KEYS.ORDINANCES, result.ordinances, true);
         }
@@ -114,7 +127,6 @@ class StorageService {
           this.set(STORAGE_KEYS.BUDGETS, result.budgets, true);
         }
         if (result.users && result.users.length > 0) {
-          // Merge Supabase users with any local users to ensure no users are lost
           const localUsers = this.getUsers();
           const mergedUsers = [...result.users];
           localUsers.forEach((localU) => {
@@ -125,7 +137,6 @@ class StorageService {
             );
             if (!exists) {
               mergedUsers.push(localU);
-              // Push local missing user to Supabase in background
               supabaseService.upsertUser(localU).catch(console.warn);
             }
           });
@@ -137,16 +148,16 @@ class StorageService {
           );
           this.set(STORAGE_KEYS.AUDIT_LOGS, cleanLogs, true);
         }
-        const activeOrd = this.getActiveOrdinance();
-        if (activeOrd) {
-          this.recalculateBudgets(activeOrd.id);
-        }
-        this.notifyChange('SUPABASE_INITIALIZED');
       }
+
+      // OBLIGATORILY scavenge all local cache on this machine and upload to Supabase
+      await this.forceSynchronizeAllLocalDataToSupabase();
       this.isSupabaseBootstrapped = true;
+      this.notifyChange('SUPABASE_INITIALIZED');
       return true;
     } catch (e) {
-      console.warn('Supabase init skipped/fallback to local cache:', e);
+      console.warn('Supabase init fallback/salvamento local:', e);
+      await this.forceSynchronizeAllLocalDataToSupabase().catch(console.warn);
       return false;
     }
   }
@@ -779,18 +790,38 @@ class StorageService {
     this.set(STORAGE_KEYS.BUDGETS, updatedBudgets);
   }
 
+  // Deleted Operations IDs tracking to prevent resurrection
+  getDeletedOperationIds(): string[] {
+    return this.get<string[]>(STORAGE_KEYS.DELETED_OPS, []);
+  }
+
+  addDeletedOperationIds(ids: string[]): void {
+    if (!ids || ids.length === 0) return;
+    const existing = this.getDeletedOperationIds();
+    const updated = Array.from(new Set([...existing, ...ids]));
+    this.set(STORAGE_KEYS.DELETED_OPS, updated, true);
+  }
+
+  removeDeletedOperationId(id: string): void {
+    const existing = this.getDeletedOperationIds();
+    if (existing.includes(id)) {
+      this.set(STORAGE_KEYS.DELETED_OPS, existing.filter((i) => i !== id), true);
+    }
+  }
+
   // Operations / JOE Launches
   getOperations(): OperationLaunch[] {
     const rawOps = this.get<OperationLaunch[]>(STORAGE_KEYS.OPERATIONS, INITIAL_OPERATIONS);
     const activeOrd = this.getActiveOrdinance();
     const ordinances = this.getOrdinances();
     const knownOrdinanceIds = new Set(ordinances.map((o) => o.id));
+    const deletedIds = new Set(this.getDeletedOperationIds());
 
     let hasInconsistencies = false;
 
     // Consistency check: ensure each operation has a valid ordinanceId, consistent values and calculations
     const cleanAndConsistentOps = (rawOps || [])
-      .filter((op) => op.id !== 'op-cpai1-teste-10joe')
+      .filter((op) => op.id !== 'op-cpai1-teste-10joe' && !deletedIds.has(op.id))
       .map((op) => {
         let modified = false;
         let ordId = op.ordinanceId;
@@ -839,50 +870,311 @@ class StorageService {
     return cleanAndConsistentOps;
   }
 
-  // Force an async sync with the database and reconcile with active ordinance
-  async refreshOperationsFromDatabase(): Promise<OperationLaunch[]> {
+  // Pending operations queue helpers
+  getPendingOperations(): OperationLaunch[] {
+    return this.get<OperationLaunch[]>(STORAGE_KEYS.PENDING_OPS, []);
+  }
+
+  addPendingOperation(op: OperationLaunch): void {
+    const pending = this.getPendingOperations();
+    if (!pending.some((p) => p.id === op.id)) {
+      pending.push(op);
+      this.set(STORAGE_KEYS.PENDING_OPS, pending, true);
+    }
+  }
+
+  removePendingOperation(opId: string): void {
+    const pending = this.getPendingOperations();
+    const filtered = pending.filter((p) => p.id !== opId);
+    if (filtered.length !== pending.length) {
+      this.set(STORAGE_KEYS.PENDING_OPS, filtered, true);
+    }
+  }
+
+  // Normalize any operation object recovered from browser cache or legacy storage keys
+  normalizeRecoveredOperation(item: any): OperationLaunch {
+    const rawDate = item.serviceDate || item.service_date;
+    const cleanServiceDate = toValidIsoDate(rawDate);
+    const rawCreatedAt = item.createdAt || item.created_at;
+    const cleanCreatedAt = toValidIsoDateTime(rawCreatedAt);
+    const rawUpdatedAt = item.updatedAt || item.updated_at;
+    const cleanUpdatedAt = toValidIsoDateTime(rawUpdatedAt);
+
+    const officersCount = Math.max(1, Number(item.officersCount ?? item.officers_count) || 1);
+    const unitValue = Number(item.unitValue ?? item.unit_value) > 0 ? Number(item.unitValue ?? item.unit_value) : 350;
+    const totalValue = Number(item.totalValue ?? item.total_value ?? item.total_amount) || (officersCount * unitValue);
+
+    return {
+      id: String(item.id || `op-${Date.now()}-${Math.floor(Math.random() * 1000)}`),
+      launchNumber: String(item.launchNumber || item.launch_number || item.orderNumber || item.order_number || `${Math.floor(10000 + Math.random() * 90000)}`),
+      commandId: normalizeCommandName(item.commandId || item.command_id || 'CPI'),
+      subUnit: String(item.subUnit || item.sub_unit || `${item.commandId || 'CPI'} (Direção)`),
+      ordinanceId: String(item.ordinanceId || item.ordinance_id || 'ord-122-2026'),
+      orderNumber: item.orderNumber || item.order_number || '',
+      orderType: item.orderType || item.order_type || 'ORDEM_DE_SERVICO',
+      eventName: String(item.eventName || item.event_name || 'Operação Policial'),
+      eventSubtext: item.eventSubtext || item.event_subtext || undefined,
+      serviceDate: cleanServiceDate,
+      startTime: item.startTime || item.start_time || '20h às 02h',
+      endTime: item.endTime || item.end_time || undefined,
+      calculatedDurationHours: Number(item.calculatedDurationHours ?? item.duration_hours) || 6,
+      officersCount,
+      joesPerOfficer: Number(item.joesPerOfficer ?? item.joes_per_officer) || 1,
+      unitValue,
+      totalValue,
+      status: (item.status as OperationStatus) || 'APROVADO',
+      seiProcessNumber: item.seiProcessNumber || item.sei_process_number || '2026.190110.00000',
+      seiDocumentNumber: item.seiDocumentNumber || item.sei_document_number || undefined,
+      serviceOrderLink: item.serviceOrderLink || item.service_order_link || undefined,
+      justification: item.justification || '',
+      notes: item.notes || '',
+      location: item.location || '',
+      rejectionReason: item.rejectionReason || item.rejection_reason || undefined,
+      correctionFeedback: item.correctionFeedback || item.correction_feedback || undefined,
+      officers: Array.isArray(item.officers) ? item.officers : [],
+      checklist: (item.checklist && typeof item.checklist === 'object') ? item.checklist : undefined,
+      batchConsolidationId: item.batchConsolidationId || item.batch_consolidation_id || undefined,
+      authorizeExcess: Boolean(item.authorizeExcess ?? item.authorize_excess),
+      createdBy: item.createdBy || item.created_by || 'Sistema CPI',
+      createdAt: cleanCreatedAt,
+      updatedAt: cleanUpdatedAt,
+    };
+  }
+
+  // Scavenge and rescue ANY operations stored across ALL keys in the browser's localStorage
+  scavengeAndRescueBrowserCachedOperations(): OperationLaunch[] {
+    const recoveredMap = new Map<string, OperationLaunch>();
+    const deletedIds = new Set(this.getDeletedOperationIds());
+
+    if (typeof localStorage === 'undefined') return [];
+
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+
+      // Skip non-operation keys, deleted tombstones, and pure auth tokens
+      if (
+        key === STORAGE_KEYS.DELETED_OPS ||
+        key.includes('token') ||
+        key.includes('auth_session') ||
+        key.includes('password')
+      ) {
+        continue;
+      }
+
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw || (!raw.startsWith('[') && !raw.startsWith('{'))) continue;
+
+        const parsed = JSON.parse(raw);
+        const list: any[] = Array.isArray(parsed) ? parsed : [parsed];
+
+        for (const item of list) {
+          if (!item || typeof item !== 'object') continue;
+
+          // Check if this item has characteristics of an operation launch
+          const hasEventName = Boolean(item.eventName || item.event_name);
+          const hasCommand = Boolean(item.commandId || item.command_id || item.subUnit || item.sub_unit);
+          const hasJoes = typeof item.officersCount !== 'undefined' || typeof item.officers_count !== 'undefined' || typeof item.totalValue !== 'undefined' || typeof item.total_amount !== 'undefined';
+
+          if (hasEventName && (hasCommand || hasJoes)) {
+            const op = this.normalizeRecoveredOperation(item);
+            if (op && op.id && !deletedIds.has(op.id) && op.id !== 'op-cpai1-teste-10joe') {
+              if (!recoveredMap.has(op.id)) {
+                recoveredMap.set(op.id, op);
+              } else {
+                const existing = recoveredMap.get(op.id)!;
+                const existingTs = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+                const newTs = new Date(op.updatedAt || op.createdAt || 0).getTime();
+                if (newTs >= existingTs) {
+                  recoveredMap.set(op.id, op);
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // safe ignore unparsable keys
+      }
+    }
+
+    return Array.from(recoveredMap.values());
+  }
+
+  // FORCED CLOUD SYNC: Obligatorily pushes all cached data to Supabase and reconciles with cloud state
+  public async forceSynchronizeAllLocalDataToSupabase(): Promise<{
+    success: boolean;
+    uploadedToCloud: number;
+    totalOperations: number;
+    message?: string;
+  }> {
     try {
+      // 1. Scavenge all browser cache to ensure NO local operation is ever lost
+      const rescuedOps = this.scavengeAndRescueBrowserCachedOperations();
+      const currentLocalOps = this.getOperations();
+      const pendingOps = this.getPendingOperations();
+      const deletedIds = new Set(this.getDeletedOperationIds());
+
+      // Merge all local and rescued operations
+      const localMap = new Map<string, OperationLaunch>();
+      for (const op of currentLocalOps) {
+        if (!deletedIds.has(op.id)) localMap.set(op.id, op);
+      }
+      for (const op of rescuedOps) {
+        if (!deletedIds.has(op.id) && !localMap.has(op.id)) {
+          localMap.set(op.id, op);
+        }
+      }
+      for (const op of pendingOps) {
+        if (!deletedIds.has(op.id)) localMap.set(op.id, op);
+      }
+
+      const allLocalOps = Array.from(localMap.values());
+
+      // 2. Fetch all cloud operations from Supabase
       const cloudOps = await supabaseService.fetchOperations();
-      if (cloudOps && cloudOps.length > 0) {
-        const localOps = this.getOperations();
+      let uploadedToCloud = 0;
+
+      if (cloudOps !== null) {
+        const cloudMap = new Map<string, OperationLaunch>();
+        for (const cop of cloudOps) {
+          if (!deletedIds.has(cop.id)) {
+            cloudMap.set(cop.id, cop);
+          }
+        }
+
+        // 3. For EVERY local operation: if not in cloud or local is newer, OBLIGATORILY upsert to Supabase
+        for (const localOp of allLocalOps) {
+          const cloudOp = cloudMap.get(localOp.id);
+          const needsUpload = !cloudOp || (new Date(localOp.updatedAt || localOp.createdAt || 0).getTime() > new Date(cloudOp.updatedAt || cloudOp.createdAt || 0).getTime());
+
+          if (needsUpload) {
+            const uploadRes = await supabaseService.upsertOperation(localOp);
+            if (uploadRes.success) {
+              uploadedToCloud++;
+              this.removePendingOperation(localOp.id);
+              cloudMap.set(localOp.id, localOp);
+            } else {
+              console.warn(`Tentativa de sincronizar operação "${localOp.eventName}" falhou:`, uploadRes.error);
+              this.addPendingOperation(localOp);
+            }
+          }
+        }
+
+        // 4. Merge all cloud operations with local operations so this machine has the complete global state
+        const finalMap = new Map<string, OperationLaunch>();
+        for (const cop of cloudMap.values()) {
+          finalMap.set(cop.id, cop);
+        }
+        for (const lop of allLocalOps) {
+          if (!finalMap.has(lop.id)) {
+            finalMap.set(lop.id, lop);
+          }
+        }
+
+        const consolidatedOps = Array.from(finalMap.values());
+        this.set(STORAGE_KEYS.OPERATIONS, consolidatedOps);
+
         const activeOrd = this.getActiveOrdinance();
-        const merged = [...cloudOps];
-
-        // Ensure any local operation not yet in cloud is preserved
-        localOps.forEach((localOp) => {
-          if (!merged.some((m) => m.id === localOp.id)) {
-            merged.push(localOp);
-            supabaseService.upsertOperation(localOp).catch(console.warn);
-          }
-        });
-
-        // Reconcile ordinance IDs with active ordinance
-        const consistentMerged = merged.map((op) => {
-          let ordId = op.ordinanceId;
-          if (!ordId || ordId === 'portaria-vigente' || (activeOrd && ordId.includes('122') && activeOrd.id.includes('122'))) {
-            ordId = activeOrd ? activeOrd.id : 'ord-122-2026';
-          }
-          const officersCount = Math.max(1, Number(op.officersCount) || 1);
-          const unitValue = Number(op.unitValue) > 0 ? Number(op.unitValue) : (activeOrd?.unitValueJoe || 350);
-          return {
-            ...op,
-            ordinanceId: ordId,
-            officersCount,
-            unitValue,
-            totalValue: officersCount * unitValue,
-            status: op.status || 'APROVADO',
-          };
-        });
-
-        this.set(STORAGE_KEYS.OPERATIONS, consistentMerged);
         if (activeOrd) {
           this.recalculateBudgets(activeOrd.id);
         }
-        return consistentMerged;
+
+        this.notifyChange('OPERATIONS_CHANGED');
+
+        return {
+          success: true,
+          uploadedToCloud,
+          totalOperations: consolidatedOps.length,
+          message: `${uploadedToCloud} lançamento(s) sincronizado(s) no banco de dados com sucesso.`,
+        };
+      } else {
+        // Supabase unreachable at this moment, save local ops and queue pending
+        this.set(STORAGE_KEYS.OPERATIONS, allLocalOps);
+        allLocalOps.forEach((op) => this.addPendingOperation(op));
+        return {
+          success: false,
+          uploadedToCloud: 0,
+          totalOperations: allLocalOps.length,
+          message: 'Banco de dados Supabase temporariamente inacessível. Os dados permanecem preservados em segurança no navegador.',
+        };
       }
-    } catch (e) {
-      console.warn('Erro ao sincronizar operações com o banco:', e);
+    } catch (e: any) {
+      console.warn('Erro durante a sincronização obrigatória com o Supabase:', e);
+      return {
+        success: false,
+        uploadedToCloud: 0,
+        totalOperations: this.getOperations().length,
+        message: e?.message || 'Erro inesperado durante a sincronização.',
+      };
     }
+  }
+
+  // Background non-intrusive syncer
+  public async syncWithCloudInBackground(): Promise<void> {
+    if (this.isSyncingInBackground) return;
+    this.isSyncingInBackground = true;
+    try {
+      // Process pending queue first if any
+      const pending = this.getPendingOperations();
+      if (pending.length > 0) {
+        for (const op of pending) {
+          const res = await supabaseService.upsertOperation(op);
+          if (res.success) {
+            this.removePendingOperation(op.id);
+          }
+        }
+      }
+
+      // Check cloud operations and merge
+      const cloudOps = await supabaseService.fetchOperations();
+      if (cloudOps) {
+        const localOps = this.getOperations();
+        const deletedIds = new Set(this.getDeletedOperationIds());
+        let changed = false;
+
+        const mergedMap = new Map<string, OperationLaunch>();
+        localOps.forEach((op) => {
+          if (!deletedIds.has(op.id)) mergedMap.set(op.id, op);
+        });
+
+        cloudOps.forEach((cop) => {
+          if (!deletedIds.has(cop.id)) {
+            const existing = mergedMap.get(cop.id);
+            if (!existing) {
+              mergedMap.set(cop.id, cop);
+              changed = true;
+            } else {
+              const cloudTs = new Date(cop.updatedAt || cop.createdAt || 0).getTime();
+              const localTs = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+              if (cloudTs > localTs) {
+                mergedMap.set(cop.id, cop);
+                changed = true;
+              }
+            }
+          }
+        });
+
+        if (changed) {
+          const updatedOps = Array.from(mergedMap.values());
+          this.set(STORAGE_KEYS.OPERATIONS, updatedOps);
+          const activeOrd = this.getActiveOrdinance();
+          if (activeOrd) {
+            this.recalculateBudgets(activeOrd.id);
+          }
+          this.notifyChange('OPERATIONS_CHANGED');
+        }
+      }
+    } catch (err) {
+      console.warn('Background cloud sync exception:', err);
+    } finally {
+      this.isSyncingInBackground = false;
+    }
+  }
+
+  // Force an async sync with the database and reconcile with active ordinance
+  async refreshOperationsFromDatabase(): Promise<OperationLaunch[]> {
+    await this.forceSynchronizeAllLocalDataToSupabase();
     return this.getOperations();
   }
 
@@ -895,6 +1187,10 @@ class StorageService {
     const index = operations.findIndex((op) => op.id === operation.id);
     const isNew = index < 0;
 
+    const opId = operation.id || `op-${Date.now()}`;
+    // If this was previously marked deleted, unmark it
+    this.removeDeletedOperationId(opId);
+
     const assignedOrdinanceId = operation.ordinanceId || activeOrd?.id || 'ord-122-2026';
     const assignedOfficersCount = Math.max(1, Number(operation.officersCount) || 1);
     const assignedUnitValue = Number(operation.unitValue) > 0 ? Number(operation.unitValue) : (activeOrd?.unitValueJoe || 350);
@@ -902,12 +1198,13 @@ class StorageService {
 
     const opToSave: OperationLaunch = {
       ...operation,
-      id: operation.id || `op-${Date.now()}`,
+      id: opId,
       ordinanceId: assignedOrdinanceId,
       officersCount: assignedOfficersCount,
       unitValue: assignedUnitValue,
       totalValue: assignedTotalValue,
       status: operation.status || 'APROVADO',
+      serviceDate: toValidIsoDate(operation.serviceDate),
       createdAt: isNew ? (operation.createdAt || new Date().toISOString()) : (operation.createdAt || new Date().toISOString()),
       updatedAt: new Date().toISOString(),
     };
@@ -942,12 +1239,19 @@ class StorageService {
       dbError = cloudErr?.message || 'Erro inesperado de comunicação com o Supabase.';
     }
 
+    // 3. Manage offline pending queue
+    if (syncedWithCloud) {
+      this.removePendingOperation(opToSave.id);
+    } else {
+      this.addPendingOperation(opToSave);
+    }
+
     this.logAudit({
       userName: user.name,
       userRole: user.role,
       action: isNew ? 'criar' : 'editar',
       recordId: `lancamentos #${recIndex}`,
-      description: `${opToSave.eventName} · ${opToSave.officersCount} JOEs · R$ ${opToSave.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} ${syncedWithCloud ? '(Sincronizado no Supabase)' : '(Gravado Localmente)'}`,
+      description: `${opToSave.eventName} · ${opToSave.officersCount} JOEs · R$ ${opToSave.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} ${syncedWithCloud ? '(Sincronizado no Supabase)' : '(Gravado Localmente - Na Fila de Sincronização)'}`,
       ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
     });
 
@@ -958,31 +1262,165 @@ class StorageService {
       dbError,
       message: syncedWithCloud
         ? 'Lançamento salvo com sucesso no banco de dados!'
-        : 'Lançamento registrado com sucesso no sistema!',
+        : 'Lançamento registrado localmente e colocado na fila prioritária de sincronização.',
     };
   }
 
-  deleteOperation(operationId: string, user: User): { success: boolean; message?: string } {
+  // Purge specific deleted operation IDs from all localStorage keys to prevent recovery
+  purgeDeletedIdsFromAllStorage(ids: string[]): void {
+    if (!ids || ids.length === 0) return;
+    const idSet = new Set(ids);
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key || key === STORAGE_KEYS.DELETED_OPS) continue;
+        const raw = localStorage.getItem(key);
+        if (!raw || (!raw.startsWith('[') && !raw.startsWith('{'))) continue;
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const hasAny = parsed.some(
+              (item) => item && typeof item === 'object' && idSet.has(item.id)
+            );
+            if (hasAny) {
+              const cleaned = parsed.filter(
+                (item) => !item || typeof item !== 'object' || !idSet.has(item.id)
+              );
+              localStorage.setItem(key, JSON.stringify(cleaned));
+            }
+          }
+        } catch {
+          // ignore parsing error
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao purgar IDs excluídos do localStorage:', e);
+    }
+  }
+
+  async deleteOperation(
+    operationId: string,
+    user?: User | null
+  ): Promise<{ success: boolean; message?: string }> {
+    if (!operationId) return { success: false, message: 'ID do lançamento não fornecido.' };
+
     const operations = this.getOperations();
     const opIndex = operations.findIndex((o) => o.id === operationId);
-    if (opIndex < 0) return { success: false, message: 'Operação não encontrada.' };
+    const op = opIndex >= 0 ? operations[opIndex] : null;
 
-    const op = operations[opIndex];
+    // 1. Remove from local active operations
     const filtered = operations.filter((o) => o.id !== operationId);
     this.set(STORAGE_KEYS.OPERATIONS, filtered);
-    this.recalculateBudgets(op.ordinanceId);
-    supabaseService.deleteOperation(operationId).catch(console.warn);
 
+    // 2. Mark as deleted in tombstone registry so it can NEVER be re-synced or recovered
+    this.addDeletedOperationIds([operationId]);
+
+    // 3. Remove from pending sync queue
+    this.removePendingOperation(operationId);
+
+    // 4. Purge from any other local storage keys
+    this.purgeDeletedIdsFromAllStorage([operationId]);
+
+    // 5. Recalculate budgets for the ordinance
+    if (op?.ordinanceId) {
+      this.recalculateBudgets(op.ordinanceId);
+    } else {
+      const activeOrd = this.getActiveOrdinance();
+      if (activeOrd) this.recalculateBudgets(activeOrd.id);
+    }
+
+    // 6. Delete directly from Supabase cloud database
+    try {
+      await supabaseService.deleteOperation(operationId);
+    } catch (err) {
+      console.warn('Erro ao deletar operação no Supabase:', err);
+    }
+
+    // 7. Audit log
+    const userName = user?.name || 'Administrador do Sistema';
+    const userRole = user?.role || 'ADMIN';
     this.logAudit({
-      userName: user.name,
-      userRole: user.role,
+      userName,
+      userRole,
       action: 'excluir',
-      recordId: `lancamentos #${operations.length - opIndex}`,
-      description: `${op.eventName} · ${op.officersCount} JOEs`,
-      ipAddress: '181.191.89.202',
+      recordId: `lancamento ${operationId}`,
+      description: op
+        ? `Exclusão de lançamento: ${op.eventName} (${op.commandId}) · ${op.officersCount} JOEs · R$ ${op.totalValue?.toFixed(2) || '0.00'}`
+        : `Exclusão de lançamento ID: ${operationId}`,
+      ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
     });
 
-    return { success: true };
+    this.notifyChange('OPERATIONS_CHANGED');
+
+    return {
+      success: true,
+      message: 'Lançamento excluído com sucesso do sistema e do banco de dados.',
+    };
+  }
+
+  async deleteOperations(
+    operationIds: string[],
+    user?: User | null
+  ): Promise<{ success: boolean; count: number; message?: string }> {
+    if (!operationIds || operationIds.length === 0) {
+      return { success: false, count: 0, message: 'Nenhum lançamento selecionado para exclusão.' };
+    }
+
+    const idSet = new Set(operationIds);
+    const operations = this.getOperations();
+    const opsToDelete = operations.filter((o) => idSet.has(o.id));
+
+    // 1. Filter out all deleted operations from local state
+    const filtered = operations.filter((o) => !idSet.has(o.id));
+    this.set(STORAGE_KEYS.OPERATIONS, filtered);
+
+    // 2. Add to tombstone list
+    this.addDeletedOperationIds(operationIds);
+
+    // 3. Remove from pending queue
+    operationIds.forEach((id) => this.removePendingOperation(id));
+
+    // 4. Purge from any other storage keys
+    this.purgeDeletedIdsFromAllStorage(operationIds);
+
+    // 5. Recalculate budgets for all affected ordinances
+    const affectedOrdinanceIds = Array.from(new Set(opsToDelete.map((o) => o.ordinanceId).filter(Boolean)));
+    if (affectedOrdinanceIds.length === 0) {
+      const activeOrd = this.getActiveOrdinance();
+      if (activeOrd) affectedOrdinanceIds.push(activeOrd.id);
+    }
+    affectedOrdinanceIds.forEach((ordId) => {
+      this.recalculateBudgets(ordId);
+    });
+
+    // 6. Delete in batch from Supabase cloud database
+    try {
+      await supabaseService.deleteOperations(operationIds);
+    } catch (err) {
+      console.warn('Erro ao deletar lote no Supabase:', err);
+    }
+
+    const totalJoes = opsToDelete.reduce((sum, o) => sum + (o.officersCount || 0), 0);
+    const totalValue = opsToDelete.reduce((sum, o) => sum + (o.totalValue || 0), 0);
+
+    const userName = user?.name || 'Administrador do Sistema';
+    const userRole = user?.role || 'ADMIN';
+    this.logAudit({
+      userName,
+      userRole,
+      action: 'excluir',
+      recordId: `lancamentos_lote #${operationIds.length}`,
+      description: `Exclusão em lote de ${operationIds.length} lançamentos · Total: ${totalJoes} JOEs (R$ ${totalValue.toFixed(2)})`,
+      ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
+    });
+
+    this.notifyChange('OPERATIONS_CHANGED');
+
+    return {
+      success: true,
+      count: operationIds.length,
+      message: `${operationIds.length} lançamento(s) excluído(s) com sucesso do sistema e do banco de dados.`,
+    };
   }
 
   updateOperationStatus(
@@ -1210,8 +1648,9 @@ class StorageService {
       }
     }
 
-    // Trigger full notification
+    // Trigger full notification and obligatorily push imported operations to Supabase
     this.notifyChange('IMPORT_BACKUP');
+    this.forceSynchronizeAllLocalDataToSupabase().catch(console.warn);
   }
 
   resetToCleanState(): void {
