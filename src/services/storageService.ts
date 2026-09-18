@@ -111,6 +111,15 @@ function toValidIsoDateTime(dateStr?: string): string {
   return new Date().toISOString();
 }
 
+const PERMANENTLY_EXCLUDED_OPERATION_IDS = [
+  'op-1787802927842', 'op-1787802980753', 'op-1787804010676', 'op-1787808822322',
+  'op-1787935081388', 'op-1787935134256', 'op-1787936042409', 'op-1787936494478',
+  'op-1787939933871', 'op-cpai1-dadsa-01', 'op-cpai9-dadsa-10joe', 'op-cpai7-ndjls-10joe',
+  'op-cpai4-teste-10joe', 'op-cpai4-fonseca-4joe', 'op-cpai4-testelanc-5joe',
+  'op-cpai4-testebanco-5joe', 'op-cpai9-testebanco-5joe', 'op-cpi-murum-01',
+  'op-1789615811355', 'op-1789618210275', 'op-cpai1-teste-10joe'
+];
+
 class StorageService {
   private changeListeners: Array<(type?: string) => void> = [];
   private isSupabaseBootstrapped: boolean = false;
@@ -126,14 +135,20 @@ class StorageService {
         if (result.budgets && result.budgets.length > 0) {
           this.set(STORAGE_KEYS.BUDGETS, result.budgets, true);
         }
-        if (result.operations && result.operations.length > 0) {
-          const currentOps = this.getOperations();
-          const cloudMap = new Map<string, OperationLaunch>();
-          result.operations.forEach((cop) => cloudMap.set(cop.id, cop));
-          currentOps.forEach((lop) => {
-            if (!cloudMap.has(lop.id)) cloudMap.set(lop.id, lop);
+        if (result.operations) {
+          const pendingOps = this.getPendingOperations();
+          const deletedIds = new Set(this.getDeletedOperationIds());
+          const validCloudOps = result.operations.filter((op) => !deletedIds.has(op.id));
+          const finalOpsMap = new Map<string, OperationLaunch>();
+          validCloudOps.forEach((cop) => finalOpsMap.set(cop.id, cop));
+
+          // Only keep genuinely pending local operations created offline
+          pendingOps.forEach((pop) => {
+            if (!deletedIds.has(pop.id) && !finalOpsMap.has(pop.id)) {
+              finalOpsMap.set(pop.id, pop);
+            }
           });
-          this.set(STORAGE_KEYS.OPERATIONS, Array.from(cloudMap.values()), true);
+          this.set(STORAGE_KEYS.OPERATIONS, Array.from(finalOpsMap.values()), true);
         }
         if (result.users && result.users.length > 0) {
           const localUsers = this.getUsers();
@@ -801,7 +816,8 @@ class StorageService {
 
   // Deleted Operations IDs tracking to prevent resurrection
   getDeletedOperationIds(): string[] {
-    return this.get<string[]>(STORAGE_KEYS.DELETED_OPS, []);
+    const local = this.get<string[]>(STORAGE_KEYS.DELETED_OPS, []);
+    return Array.from(new Set([...PERMANENTLY_EXCLUDED_OPERATION_IDS, ...local]));
   }
 
   addDeletedOperationIds(ids: string[]): void {
@@ -950,67 +966,13 @@ class StorageService {
     };
   }
 
-  // Scavenge and rescue ANY operations stored across ALL keys in the browser's localStorage
+  // Scavenge and rescue operations: only genuinely pending operations created offline are queued
   scavengeAndRescueBrowserCachedOperations(): OperationLaunch[] {
-    const recoveredMap = new Map<string, OperationLaunch>();
     const deletedIds = new Set(this.getDeletedOperationIds());
-
-    if (typeof localStorage === 'undefined') return [];
-
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key) continue;
-
-      // Skip non-operation keys, deleted tombstones, and pure auth tokens
-      if (
-        key === STORAGE_KEYS.DELETED_OPS ||
-        key.includes('token') ||
-        key.includes('auth_session') ||
-        key.includes('password')
-      ) {
-        continue;
-      }
-
-      try {
-        const raw = localStorage.getItem(key);
-        if (!raw || (!raw.startsWith('[') && !raw.startsWith('{'))) continue;
-
-        const parsed = JSON.parse(raw);
-        const list: any[] = Array.isArray(parsed) ? parsed : [parsed];
-
-        for (const item of list) {
-          if (!item || typeof item !== 'object') continue;
-
-          // Check if this item has characteristics of an operation launch
-          const hasEventName = Boolean(item.eventName || item.event_name);
-          const hasCommand = Boolean(item.commandId || item.command_id || item.subUnit || item.sub_unit);
-          const hasJoes = typeof item.officersCount !== 'undefined' || typeof item.officers_count !== 'undefined' || typeof item.totalValue !== 'undefined' || typeof item.total_amount !== 'undefined';
-
-          if (hasEventName && (hasCommand || hasJoes)) {
-            const op = this.normalizeRecoveredOperation(item);
-            if (op && op.id && !deletedIds.has(op.id) && op.id !== 'op-cpai1-teste-10joe') {
-              if (!recoveredMap.has(op.id)) {
-                recoveredMap.set(op.id, op);
-              } else {
-                const existing = recoveredMap.get(op.id)!;
-                const existingTs = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
-                const newTs = new Date(op.updatedAt || op.createdAt || 0).getTime();
-                if (newTs >= existingTs) {
-                  recoveredMap.set(op.id, op);
-                }
-              }
-            }
-          }
-        }
-      } catch {
-        // safe ignore unparsable keys
-      }
-    }
-
-    return Array.from(recoveredMap.values());
+    return this.getPendingOperations().filter((op) => !deletedIds.has(op.id));
   }
 
-  // FORCED CLOUD SYNC: Obligatorily pushes all cached data to Supabase and reconciles with cloud state
+  // FORCED CLOUD SYNC: Reconciles local cache with authoritative Supabase database and uploads only pending operations
   public async forceSynchronizeAllLocalDataToSupabase(): Promise<{
     success: boolean;
     uploadedToCloud: number;
@@ -1018,73 +980,48 @@ class StorageService {
     message?: string;
   }> {
     try {
-      // 1. Scavenge all browser cache to ensure NO local operation is ever lost
-      const rescuedOps = this.scavengeAndRescueBrowserCachedOperations();
-      const currentLocalOps = this.getOperations();
-      const pendingOps = this.getPendingOperations();
       const deletedIds = new Set(this.getDeletedOperationIds());
+      const pendingOps = this.getPendingOperations();
 
-      // Merge all local and rescued operations
-      const localMap = new Map<string, OperationLaunch>();
-      for (const op of currentLocalOps) {
-        if (!deletedIds.has(op.id)) localMap.set(op.id, op);
-      }
-      for (const op of rescuedOps) {
-        if (!deletedIds.has(op.id) && !localMap.has(op.id)) {
-          localMap.set(op.id, op);
+      let uploadedToCloud = 0;
+
+      // 1. Process and upload genuinely pending operations (created offline)
+      for (const pendingOp of pendingOps) {
+        if (deletedIds.has(pendingOp.id)) {
+          this.removePendingOperation(pendingOp.id);
+          continue;
+        }
+
+        const uploadRes = await supabaseService.upsertOperation(pendingOp);
+        if (uploadRes.success) {
+          uploadedToCloud++;
+          this.removePendingOperation(pendingOp.id);
+        } else {
+          console.warn(`Tentativa de sincronizar operação pendente "${pendingOp.eventName}" falhou:`, uploadRes.error);
         }
       }
-      for (const op of pendingOps) {
-        if (!deletedIds.has(op.id)) localMap.set(op.id, op);
-      }
 
-      const allLocalOps = Array.from(localMap.values());
-
-      // 2. Fetch all cloud operations from Supabase (authoritative cloud state)
+      // 2. Fetch authoritative cloud operations from Supabase
       const cloudOps = await supabaseService.fetchOperations();
-      let uploadedToCloud = 0;
 
       if (cloudOps !== null) {
         const cloudMap = new Map<string, OperationLaunch>();
-        // JAMAIS APAGAR DADOS DO BANCO DE DADOS EXISTENTE: All operations fetched from cloud database are 100% preserved
         for (const cop of cloudOps) {
-          cloudMap.set(cop.id, cop);
-          // If it was previously marked in deletedIds locally, unmark it because it legitimately exists in the database
-          if (deletedIds.has(cop.id)) {
-            this.removeDeletedOperationId(cop.id);
+          if (!deletedIds.has(cop.id)) {
+            cloudMap.set(cop.id, cop);
           }
         }
 
-        // 3. For EVERY local operation: if not in cloud or local is newer, OBLIGATORILY upsert to Supabase
-        for (const localOp of allLocalOps) {
-          const cloudOp = cloudMap.get(localOp.id);
-          const needsUpload = !cloudOp || (new Date(localOp.updatedAt || localOp.createdAt || 0).getTime() > new Date(cloudOp.updatedAt || cloudOp.createdAt || 0).getTime());
-
-          if (needsUpload) {
-            const uploadRes = await supabaseService.upsertOperation(localOp);
-            if (uploadRes.success) {
-              uploadedToCloud++;
-              this.removePendingOperation(localOp.id);
-              cloudMap.set(localOp.id, localOp);
-            } else {
-              console.warn(`Tentativa de sincronizar operação "${localOp.eventName}" falhou:`, uploadRes.error);
-              this.addPendingOperation(localOp);
-            }
+        // Keep only remaining offline pending operations that have not yet uploaded
+        const remainingPending = this.getPendingOperations();
+        for (const pop of remainingPending) {
+          if (!deletedIds.has(pop.id) && !cloudMap.has(pop.id)) {
+            cloudMap.set(pop.id, pop);
           }
         }
 
-        // 4. Merge all cloud operations with local operations so this machine has the complete global state
-        const finalMap = new Map<string, OperationLaunch>();
-        for (const cop of cloudMap.values()) {
-          finalMap.set(cop.id, cop);
-        }
-        for (const lop of allLocalOps) {
-          if (!finalMap.has(lop.id)) {
-            finalMap.set(lop.id, lop);
-          }
-        }
-
-        const consolidatedOps = Array.from(finalMap.values());
+        const consolidatedOps = Array.from(cloudMap.values());
+        // Authoritative replacement: local cache now matches the cloud database perfectly
         this.set(STORAGE_KEYS.OPERATIONS, consolidatedOps);
 
         const activeOrd = this.getActiveOrdinance();
@@ -1098,21 +1035,19 @@ class StorageService {
           success: true,
           uploadedToCloud,
           totalOperations: consolidatedOps.length,
-          message: `${uploadedToCloud} lançamento(s) sincronizado(s) no banco de dados com sucesso.`,
+          message: `${uploadedToCloud} lançamento(s) sincronizado(s) no banco de dados com sucesso. Total de ${consolidatedOps.length} operações.`,
         };
       } else {
-        // Supabase unreachable at this moment, save local ops and queue pending
-        this.set(STORAGE_KEYS.OPERATIONS, allLocalOps);
-        allLocalOps.forEach((op) => this.addPendingOperation(op));
+        // Supabase unreachable: preserve current local ops
         return {
           success: false,
           uploadedToCloud: 0,
-          totalOperations: allLocalOps.length,
-          message: 'Banco de dados Supabase temporariamente inacessível. Os dados permanecem preservados em segurança no navegador.',
+          totalOperations: this.getOperations().length,
+          message: 'Banco de dados Supabase temporariamente inacessível. Os dados locais permanecem preservados.',
         };
       }
     } catch (e: any) {
-      console.warn('Erro durante a sincronização obrigatória com o Supabase:', e);
+      console.warn('Erro durante a sincronização com o Supabase:', e);
       return {
         success: false,
         uploadedToCloud: 0,
@@ -1127,10 +1062,16 @@ class StorageService {
     if (this.isSyncingInBackground) return;
     this.isSyncingInBackground = true;
     try {
-      // Process pending queue first if any
+      const deletedIds = new Set(this.getDeletedOperationIds());
+
+      // 1. Process pending queue first if any
       const pending = this.getPendingOperations();
       if (pending.length > 0) {
         for (const op of pending) {
+          if (deletedIds.has(op.id)) {
+            this.removePendingOperation(op.id);
+            continue;
+          }
           const res = await supabaseService.upsertOperation(op);
           if (res.success) {
             this.removePendingOperation(op.id);
@@ -1138,36 +1079,29 @@ class StorageService {
         }
       }
 
-      // Check cloud operations and merge
+      // 2. Fetch authoritative cloud operations from Supabase
       const cloudOps = await supabaseService.fetchOperations();
-      if (cloudOps) {
-        const localOps = this.getOperations();
-        const deletedIds = new Set(this.getDeletedOperationIds());
-        let changed = false;
+      if (cloudOps !== null) {
+        const validCloudOps = cloudOps.filter((cop) => !deletedIds.has(cop.id));
+        const finalOpsMap = new Map<string, OperationLaunch>();
+        validCloudOps.forEach((cop) => finalOpsMap.set(cop.id, cop));
 
-        const mergedMap = new Map<string, OperationLaunch>();
-        localOps.forEach((op) => {
-          if (!deletedIds.has(op.id)) mergedMap.set(op.id, op);
-        });
-
-        cloudOps.forEach((cop) => {
-          // JAMAIS APAGAR DADOS DO BANCO DE DADOS EXISTENTE: cloud operations are kept
-          const existing = mergedMap.get(cop.id);
-          if (!existing) {
-            mergedMap.set(cop.id, cop);
-            changed = true;
-          } else {
-            const cloudTs = new Date(cop.updatedAt || cop.createdAt || 0).getTime();
-            const localTs = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
-            if (cloudTs > localTs) {
-              mergedMap.set(cop.id, cop);
-              changed = true;
-            }
+        // Retain only un-uploaded offline operations
+        const remainingPending = this.getPendingOperations();
+        remainingPending.forEach((pop) => {
+          if (!deletedIds.has(pop.id) && !finalOpsMap.has(pop.id)) {
+            finalOpsMap.set(pop.id, pop);
           }
         });
 
-        if (changed) {
-          const updatedOps = Array.from(mergedMap.values());
+        const currentOps = this.getOperations();
+        const updatedOps = Array.from(finalOpsMap.values());
+
+        const isDifferent =
+          currentOps.length !== updatedOps.length ||
+          currentOps.some((o) => !finalOpsMap.has(o.id));
+
+        if (isDifferent) {
           this.set(STORAGE_KEYS.OPERATIONS, updatedOps);
           const activeOrd = this.getActiveOrdinance();
           if (activeOrd) {
