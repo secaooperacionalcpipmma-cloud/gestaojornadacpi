@@ -628,9 +628,15 @@ export function ReportsView({
                 Arquivo gerado: <strong>{driveSaveResult.fileName}</strong>
               </p>
             )}
+            {!driveSaveResult.success && driveSaveResult.message.includes('origin_mismatch') && (
+              <p className="text-xs text-rose-800 bg-white/70 p-2 rounded-lg border border-rose-200 mt-1">
+                <strong>Origem necessária no Google Cloud Console:</strong>{' '}
+                <code className="font-mono">{typeof window !== 'undefined' ? window.location.origin : ''}</code>
+              </p>
+            )}
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             {driveSaveResult.webViewLink && (
               <a
                 href={driveSaveResult.webViewLink}
@@ -641,6 +647,27 @@ export function ReportsView({
                 <span>Abrir no Google Drive</span>
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
+            )}
+            {!driveSaveResult.success && (
+              <>
+                <button
+                  onClick={() => {
+                    if (navigator.clipboard) {
+                      navigator.clipboard.writeText(window.location.origin);
+                      alert(`URL de Origem copiada: ${window.location.origin}`);
+                    }
+                  }}
+                  className="px-3 py-2 rounded-xl text-xs font-bold bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 shadow-2xs transition-colors"
+                >
+                  Copiar URL da Origem
+                </button>
+                <button
+                  onClick={handleExportExcel}
+                  className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors"
+                >
+                  Baixar Excel Agora
+                </button>
+              </>
             )}
             <button
               onClick={() => setDriveSaveResult(null)}

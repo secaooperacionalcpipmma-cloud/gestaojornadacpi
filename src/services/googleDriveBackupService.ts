@@ -6,6 +6,13 @@ import {
 } from '../types';
 import { storageService } from './storageService';
 import { excelService } from './excelService';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import {
+  getAuth,
+  signInWithPopup,
+  GoogleAuthProvider,
+} from 'firebase/auth';
+import firebaseConfig from '../../firebase-applet-config.json';
 
 export const TARGET_GOOGLE_EMAIL = 'secaooperacional.cpi.pmma@gmail.com';
 export const TARGET_DRIVE_FOLDER_ID = '1rk7Urwzl1uyoJGNDPT23VTbFTzlNcQQP';
@@ -16,6 +23,22 @@ export const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
 const GOOGLE_CLIENT_ID =
   (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID ||
   '328695075161-g149lmt5mus0dd3lfo8rg8bmg5sckh46.apps.googleusercontent.com';
+
+let firebaseAuth: any = null;
+let driveGoogleProvider: any = null;
+
+try {
+  const firebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+  firebaseAuth = getAuth(firebaseApp);
+  driveGoogleProvider = new GoogleAuthProvider();
+  driveGoogleProvider.addScope(DRIVE_SCOPES);
+  driveGoogleProvider.setCustomParameters({
+    login_hint: TARGET_GOOGLE_EMAIL,
+    prompt: 'consent',
+  });
+} catch (e) {
+  console.warn('Aviso na inicialização do Firebase Auth:', e);
+}
 
 const STORAGE_KEYS = {
   DRIVE_ACCESS_TOKEN: 'cpi_pmma_gdrive_access_token',
@@ -143,12 +166,62 @@ class GoogleDriveBackupService {
     return this.folderId || TARGET_DRIVE_FOLDER_ID;
   }
 
-  // Authorize using Google Identity Services (GIS)
+  public getCurrentOrigin(): string {
+    return typeof window !== 'undefined' ? window.location.origin : '';
+  }
+
+  public setManualAccessToken(token: string) {
+    const cleanToken = token.trim();
+    if (!cleanToken) return;
+    this.accessToken = cleanToken;
+    this.tokenExpiresAt = Date.now() + 3600 * 1000;
+    localStorage.setItem(STORAGE_KEYS.DRIVE_ACCESS_TOKEN, this.accessToken);
+    localStorage.setItem(STORAGE_KEYS.DRIVE_TOKEN_EXPIRES_AT, this.tokenExpiresAt.toString());
+    this.setStatus('IDLE');
+  }
+
+  // Authorize using Firebase Auth Popup (official) or Google Identity Services (GIS)
   public async requestAuthorization(interactive: boolean = true): Promise<string> {
     if (this.isConnected() && this.accessToken) {
       return this.accessToken;
     }
 
+    // 1. Primary: Firebase Auth Popup (mandated for Google Workspace integrations in AI Studio)
+    if (firebaseAuth && driveGoogleProvider) {
+      try {
+        this.setStatus('SYNCING');
+        const result = await signInWithPopup(firebaseAuth, driveGoogleProvider);
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        if (credential?.accessToken) {
+          this.accessToken = credential.accessToken;
+          this.tokenExpiresAt = Date.now() + 3550 * 1000;
+
+          localStorage.setItem(STORAGE_KEYS.DRIVE_ACCESS_TOKEN, this.accessToken);
+          localStorage.setItem(
+            STORAGE_KEYS.DRIVE_TOKEN_EXPIRES_AT,
+            this.tokenExpiresAt.toString()
+          );
+
+          this.setStatus('IDLE');
+          return this.accessToken;
+        }
+      } catch (fbError: any) {
+        console.warn('Tentativa via Firebase Auth:', fbError);
+        if (fbError.code === 'auth/popup-closed-by-user') {
+          this.setStatus('UNAUTHENTICATED');
+          throw new Error('A janela de login do Google foi fechada antes de autorizar.');
+        }
+        if (fbError.code === 'auth/cancelled-popup-request') {
+          this.setStatus('UNAUTHENTICATED');
+          throw new Error('A requisição de login foi cancelada.');
+        }
+        if (fbError.code === 'auth/unauthorized-domain') {
+          console.warn('Domínio ainda não listado no Firebase Auth:', window.location.origin);
+        }
+      }
+    }
+
+    // 2. Secondary fallback: Google Identity Services (GIS)
     return new Promise((resolve, reject) => {
       if (typeof window === 'undefined' || !window.google?.accounts?.oauth2) {
         // Wait a moment in case GIS script is finishing load
@@ -156,7 +229,7 @@ class GoogleDriveBackupService {
           if (!window.google?.accounts?.oauth2) {
             reject(
               new Error(
-                'Google Identity Services (GSI) não foi carregado. Verifique a conexão com a internet.'
+                'Serviço de autenticação do Google não disponível no momento. Verifique sua conexão.'
               )
             );
             return;
@@ -184,6 +257,15 @@ class GoogleDriveBackupService {
         callback: (resp) => {
           if (resp.error || !resp.access_token) {
             this.setStatus('UNAUTHENTICATED');
+            const errStr = String(resp.error || '');
+            if (errStr.includes('origin_mismatch') || errStr.includes('access_denied')) {
+              reject(
+                new Error(
+                  `Erro de Origem (origin_mismatch): A URL atual (${window.location.origin}) precisa estar nas Origens JavaScript Autorizadas do Google Cloud Console.`
+                )
+              );
+              return;
+            }
             reject(new Error(resp.error || 'Permissão não concedida pelo usuário no Google Drive.'));
             return;
           }
@@ -205,6 +287,15 @@ class GoogleDriveBackupService {
 
       tokenClient.requestAccessToken({ prompt: interactive ? 'consent' : '' });
     } catch (e: any) {
+      const errStr = String(e?.message || e || '');
+      if (errStr.includes('origin_mismatch')) {
+        reject(
+          new Error(
+            `Erro de Origem (origin_mismatch): A URL atual (${window.location.origin}) precisa estar autorizada no Google Cloud Console.`
+          )
+        );
+        return;
+      }
       reject(e);
     }
   }

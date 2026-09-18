@@ -76,6 +76,11 @@ export function BackupManagerModal({
   // Drive restore state
   const [restoringDriveFileId, setRestoringDriveFileId] = useState<string | null>(null);
 
+  // Manual auth & origin helper state
+  const [showManualAuth, setShowManualAuth] = useState<boolean>(false);
+  const [manualToken, setManualToken] = useState<string>('');
+  const [copiedOrigin, setCopiedOrigin] = useState<boolean>(false);
+
   useEffect(() => {
     if (!isOpen) return;
 
@@ -182,6 +187,26 @@ export function BackupManagerModal({
     } finally {
       setIsUploading(false);
     }
+  };
+
+  const handleCopyOrigin = () => {
+    const origin = googleDriveBackupService.getCurrentOrigin();
+    if (navigator.clipboard && origin) {
+      navigator.clipboard.writeText(origin);
+      setCopiedOrigin(true);
+      setTimeout(() => setCopiedOrigin(false), 3000);
+      showFeedback('info', `URL de Origem copiada: ${origin}`);
+    }
+  };
+
+  const handleApplyManualToken = () => {
+    if (!manualToken.trim()) {
+      showFeedback('error', 'Cole um token de acesso válido antes de aplicar.');
+      return;
+    }
+    googleDriveBackupService.setManualAccessToken(manualToken.trim());
+    showFeedback('success', 'Token OAuth aplicado com sucesso! Tentando sincronizar histórico...');
+    fetchDriveHistory();
   };
 
   const handleManualBackupToDrive = async () => {
@@ -659,6 +684,63 @@ export function BackupManagerModal({
                   {isAutoBackup ? '✓ Salvar Auto Ativo' : 'Desativado'}
                 </span>
               </div>
+
+              {/* Diagnostic / Origin Details & Manual Token Toggle */}
+              <div className="mt-3 pt-3 border-t border-sky-200/50 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-1.5 text-slate-600">
+                  <Shield className="w-3.5 h-3.5 text-[#002D5A]" />
+                  <span>Origem da aplicação:</span>
+                  <code className="bg-white/80 px-2 py-0.5 rounded border border-slate-200 font-mono text-[11px] text-slate-800">
+                    {googleDriveBackupService.getCurrentOrigin() || 'Detectando URL...'}
+                  </code>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCopyOrigin}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    {copiedOrigin ? '✓ Copiado!' : 'Copiar URL da Origem'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowManualAuth(!showManualAuth)}
+                    className="text-[11px] text-sky-700 hover:text-sky-900 font-medium underline cursor-pointer"
+                  >
+                    {showManualAuth ? 'Ocultar Inserção de Token' : 'Inserir Token Manual (Opcional)'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Manual Token Drawer */}
+              {showManualAuth && (
+                <div className="mt-3 p-3 bg-white rounded-xl border border-sky-200 space-y-2 animate-in fade-in">
+                  <div className="text-[11px] font-bold text-slate-700">
+                    Autenticação Manual via Token OAuth Bearer:
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="password"
+                      placeholder="Cole aqui o Token de Acesso do Google (ex: ya29...)"
+                      value={manualToken}
+                      onChange={(e) => setManualToken(e.target.value)}
+                      className="flex-1 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleApplyManualToken}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                    >
+                      Aplicar Token
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Útil para testes ou quando a origem ainda está propagando no Google Cloud Console.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Quick Actions for Excel & Drive */}
