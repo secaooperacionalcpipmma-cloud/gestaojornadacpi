@@ -16,7 +16,13 @@ import {
   ChevronDown,
   Check,
   Sparkles,
+  CloudUpload,
+  ExternalLink,
 } from 'lucide-react';
+import {
+  googleDriveBackupService,
+  TARGET_DRIVE_FOLDER_LINK,
+} from '../../services/googleDriveBackupService';
 import { CommandUnit, OperationLaunch, OrdinancePeriod, User, CommandBudget } from '../../types';
 import {
   formatCurrencyBRL,
@@ -530,6 +536,44 @@ export function ReportsView({
     }
   };
 
+  // SALVAR RELATÓRIO MAIS ATUAL NO GOOGLE DRIVE PARA TESTE
+  const [isSavingToDrive, setIsSavingToDrive] = useState(false);
+  const [driveSaveResult, setDriveSaveResult] = useState<{
+    success: boolean;
+    message: string;
+    fileName?: string;
+    webViewLink?: string;
+    dayOfWeek?: string;
+  } | null>(null);
+
+  const handleSaveToDriveTest = async () => {
+    try {
+      setIsSavingToDrive(true);
+      const res = await googleDriveBackupService.uploadBackupToDrive(currentUser, true);
+      if (res.success) {
+        setDriveSaveResult({
+          success: true,
+          message: `Relatório mais atualizado salvo com sucesso na pasta oficial do Google Drive!`,
+          fileName: res.fileName,
+          webViewLink: res.webViewLink || TARGET_DRIVE_FOLDER_LINK,
+          dayOfWeek: res.dayOfWeek,
+        });
+      } else {
+        setDriveSaveResult({
+          success: false,
+          message: res.message || 'Falha ao salvar no Google Drive.',
+        });
+      }
+    } catch (err: any) {
+      setDriveSaveResult({
+        success: false,
+        message: err.message || 'Erro durante o envio para o Google Drive.',
+      });
+    } finally {
+      setIsSavingToDrive(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Toast de Notificação de Cópia Formatada com Sucesso */}
@@ -553,6 +597,58 @@ export function ReportsView({
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {/* Banner de Resultado do Envio para o Google Drive (Teste) */}
+      {driveSaveResult && (
+        <div
+          className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in ${
+            driveSaveResult.success
+              ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+              : 'bg-rose-50 border-rose-300 text-rose-950'
+          }`}
+        >
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span
+                className={`w-2.5 h-2.5 rounded-full ${
+                  driveSaveResult.success ? 'bg-emerald-600' : 'bg-rose-600'
+                }`}
+              ></span>
+              <strong className="text-sm font-bold">{driveSaveResult.message}</strong>
+              {driveSaveResult.dayOfWeek && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  {driveSaveResult.dayOfWeek}
+                </span>
+              )}
+            </div>
+            {driveSaveResult.fileName && (
+              <p className="text-xs font-mono text-slate-700">
+                Arquivo gerado: <strong>{driveSaveResult.fileName}</strong>
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {driveSaveResult.webViewLink && (
+              <a
+                href={driveSaveResult.webViewLink}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs transition-all flex items-center gap-1.5"
+              >
+                <span>Abrir no Google Drive</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
+            <button
+              onClick={() => setDriveSaveResult(null)}
+              className="px-3 py-2 rounded-xl text-xs font-semibold bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 transition-colors"
+            >
+              Fechar
+            </button>
+          </div>
         </div>
       )}
 
@@ -656,6 +752,17 @@ export function ReportsView({
             >
               <Download className="w-4 h-4 text-[#7EC2E8]" />
               <span>{isExportingExcel ? 'Gerando Excel...' : 'Gerar Excel (.xlsx)'}</span>
+            </button>
+
+            {/* Save to Google Drive Test Button */}
+            <button
+              onClick={handleSaveToDriveTest}
+              disabled={isSavingToDrive}
+              title="Salvar o relatório mais atual diretamente na pasta oficial do Google Drive para teste"
+              className="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-emerald-700 hover:bg-emerald-800 text-white transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer active:scale-98 disabled:opacity-50"
+            >
+              <CloudUpload className={`w-4 h-4 ${isSavingToDrive ? 'animate-spin' : 'text-emerald-200'}`} />
+              <span>{isSavingToDrive ? 'Salvando no Drive...' : 'Salvar no Google Drive (Teste)'}</span>
             </button>
           </div>
         </div>

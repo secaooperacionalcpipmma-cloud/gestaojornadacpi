@@ -5,19 +5,25 @@ import {
   User,
 } from '../types';
 import { storageService } from './storageService';
+import { excelService } from './excelService';
 
-const TARGET_GOOGLE_EMAIL = 'secaooperacional.cpi.pmma@gmail.com';
-const DRIVE_FOLDER_NAME = 'BACKUP_SISTEMA_JOE_CPI_PMMA';
-const MASTER_BACKUP_FILE_NAME = 'backup_sistema_joe_cpi_pmma.json';
-const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
+export const TARGET_GOOGLE_EMAIL = 'secaooperacional.cpi.pmma@gmail.com';
+export const TARGET_DRIVE_FOLDER_ID = '1rk7Urwzl1uyoJGNDPT23VTbFTzlNcQQP';
+export const TARGET_DRIVE_FOLDER_LINK = 'https://drive.google.com/drive/folders/1rk7Urwzl1uyoJGNDPT23VTbFTzlNcQQP?usp=sharing';
+export const DRIVE_FOLDER_NAME = 'BACKUP_SISTEMA_JOE_CPI_PMMA';
+export const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
+
+const GOOGLE_CLIENT_ID =
+  (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID ||
+  '328695075161-g149lmt5mus0dd3lfo8rg8bmg5sckh46.apps.googleusercontent.com';
 
 const STORAGE_KEYS = {
   DRIVE_ACCESS_TOKEN: 'cpi_pmma_gdrive_access_token',
   DRIVE_TOKEN_EXPIRES_AT: 'cpi_pmma_gdrive_token_expires_at',
   DRIVE_FOLDER_ID: 'cpi_pmma_gdrive_folder_id',
-  DRIVE_MASTER_FILE_ID: 'cpi_pmma_gdrive_master_file_id',
   LAST_BACKUP_TIME: 'cpi_pmma_gdrive_last_backup_time',
   LAST_BACKUP_NAME: 'cpi_pmma_gdrive_last_backup_name',
+  LAST_BACKUP_DAY: 'cpi_pmma_gdrive_last_backup_day',
   AUTO_BACKUP_ENABLED: 'cpi_pmma_gdrive_auto_backup_enabled',
 };
 
@@ -48,15 +54,14 @@ declare global {
 class GoogleDriveBackupService {
   private accessToken: string | null = null;
   private tokenExpiresAt: number = 0;
-  private folderId: string | null = null;
+  private folderId: string = TARGET_DRIVE_FOLDER_ID;
   private syncStatus: DriveSyncStatus = 'IDLE';
   private lastBackupTime: string | null = null;
   private lastBackupName: string | null = null;
+  private lastBackupDay: string | null = null;
   private autoBackupDebounceTimer: any = null;
   private statusListeners: Array<(status: DriveSyncStatus, lastTime: string | null) => void> = [];
   private isAutoBackupEnabled: boolean = true;
-
-  private masterFileId: string | null = null;
 
   constructor() {
     this.loadCachedCredentials();
@@ -67,10 +72,10 @@ class GoogleDriveBackupService {
       this.accessToken = localStorage.getItem(STORAGE_KEYS.DRIVE_ACCESS_TOKEN);
       const expires = localStorage.getItem(STORAGE_KEYS.DRIVE_TOKEN_EXPIRES_AT);
       this.tokenExpiresAt = expires ? parseInt(expires, 10) : 0;
-      this.folderId = localStorage.getItem(STORAGE_KEYS.DRIVE_FOLDER_ID);
-      this.masterFileId = localStorage.getItem(STORAGE_KEYS.DRIVE_MASTER_FILE_ID);
+      this.folderId = localStorage.getItem(STORAGE_KEYS.DRIVE_FOLDER_ID) || TARGET_DRIVE_FOLDER_ID;
       this.lastBackupTime = localStorage.getItem(STORAGE_KEYS.LAST_BACKUP_TIME);
       this.lastBackupName = localStorage.getItem(STORAGE_KEYS.LAST_BACKUP_NAME);
+      this.lastBackupDay = localStorage.getItem(STORAGE_KEYS.LAST_BACKUP_DAY);
       const autoPref = localStorage.getItem(STORAGE_KEYS.AUTO_BACKUP_ENABLED);
       this.isAutoBackupEnabled = autoPref !== 'false';
 
@@ -109,6 +114,10 @@ class GoogleDriveBackupService {
     return this.lastBackupName;
   }
 
+  public getLastBackupDay(): string | null {
+    return this.lastBackupDay;
+  }
+
   public isAutoBackup(): boolean {
     return this.isAutoBackupEnabled;
   }
@@ -126,6 +135,14 @@ class GoogleDriveBackupService {
     return TARGET_GOOGLE_EMAIL;
   }
 
+  public getTargetFolderLink(): string {
+    return TARGET_DRIVE_FOLDER_LINK;
+  }
+
+  public getTargetFolderId(): string {
+    return this.folderId || TARGET_DRIVE_FOLDER_ID;
+  }
+
   // Authorize using Google Identity Services (GIS)
   public async requestAuthorization(interactive: boolean = true): Promise<string> {
     if (this.isConnected() && this.accessToken) {
@@ -134,7 +151,7 @@ class GoogleDriveBackupService {
 
     return new Promise((resolve, reject) => {
       if (typeof window === 'undefined' || !window.google?.accounts?.oauth2) {
-        // GIS script might still be loading, wait a moment
+        // Wait a moment in case GIS script is finishing load
         setTimeout(() => {
           if (!window.google?.accounts?.oauth2) {
             reject(
@@ -159,20 +176,15 @@ class GoogleDriveBackupService {
     reject: (reason: any) => void
   ) {
     try {
-      // In Vite AI Studio, client ID is injected into VITE_GOOGLE_CLIENT_ID or fallback
-      const clientId =
-        (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID ||
-        '303123603441-ai-studio-client.apps.googleusercontent.com';
-
       const tokenClient = window.google!.accounts.oauth2.initTokenClient({
-        client_id: clientId,
+        client_id: GOOGLE_CLIENT_ID,
         scope: DRIVE_SCOPES,
         hint: TARGET_GOOGLE_EMAIL,
         prompt: interactive ? 'consent' : '',
         callback: (resp) => {
           if (resp.error || !resp.access_token) {
             this.setStatus('UNAUTHENTICATED');
-            reject(new Error(resp.error || 'Permissão não concedida pelo usuário.'));
+            reject(new Error(resp.error || 'Permissão não concedida pelo usuário no Google Drive.'));
             return;
           }
 
@@ -201,23 +213,36 @@ class GoogleDriveBackupService {
   public disconnect() {
     this.accessToken = null;
     this.tokenExpiresAt = 0;
-    this.folderId = null;
-    this.masterFileId = null;
     localStorage.removeItem(STORAGE_KEYS.DRIVE_ACCESS_TOKEN);
     localStorage.removeItem(STORAGE_KEYS.DRIVE_TOKEN_EXPIRES_AT);
-    localStorage.removeItem(STORAGE_KEYS.DRIVE_FOLDER_ID);
-    localStorage.removeItem(STORAGE_KEYS.DRIVE_MASTER_FILE_ID);
     this.setStatus('UNAUTHENTICATED');
   }
 
-  // Ensure Backup Folder exists in Google Drive
-  private async getOrCreateBackupFolder(token: string): Promise<string> {
-    if (this.folderId) {
-      return this.folderId;
+  // Ensure Target Folder is accessible, or create fallback
+  private async resolveTargetFolder(token: string): Promise<string> {
+    // 1. First priority: Check if specified TARGET_DRIVE_FOLDER_ID exists and is accessible
+    try {
+      const checkRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${TARGET_DRIVE_FOLDER_ID}?fields=id,name,trashed,mimeType`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (checkRes.ok) {
+        const folderData = await checkRes.json();
+        if (!folderData.trashed) {
+          this.folderId = TARGET_DRIVE_FOLDER_ID;
+          localStorage.setItem(STORAGE_KEYS.DRIVE_FOLDER_ID, this.folderId);
+          return this.folderId;
+        }
+      }
+    } catch (err) {
+      console.warn('Verificando pasta de destino designada:', err);
     }
 
+    // 2. Second priority: Search for folder by name
     try {
-      // 1. Search for folder
       const query = `name='${DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
       const searchRes = await fetch(
         `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
@@ -232,154 +257,46 @@ class GoogleDriveBackupService {
         const searchData = await searchRes.json();
         if (searchData.files && searchData.files.length > 0) {
           this.folderId = searchData.files[0].id;
-          localStorage.setItem(STORAGE_KEYS.DRIVE_FOLDER_ID, this.folderId!);
-          return this.folderId!;
+          localStorage.setItem(STORAGE_KEYS.DRIVE_FOLDER_ID, this.folderId);
+          return this.folderId;
         }
       }
-
-      // 2. Create folder if not found
-      const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: DRIVE_FOLDER_NAME,
-          mimeType: 'application/vnd.google-apps.folder',
-          description:
-            'Pasta oficial de backups automáticos e manuais do Sistema de Controle de JOE - CPI/PMMA',
-        }),
-      });
-
-      if (!createRes.ok) {
-        throw new Error('Falha ao criar pasta de backups no Google Drive.');
-      }
-
-      const createData = await createRes.json();
-      this.folderId = createData.id;
-      localStorage.setItem(STORAGE_KEYS.DRIVE_FOLDER_ID, this.folderId!);
-      return this.folderId!;
-    } catch (err) {
-      console.warn('Erro ao verificar/criar pasta no Drive, usando raiz:', err);
-      return 'root';
+    } catch {
+      // continue
     }
+
+    // 3. Fallback: try target folder ID directly
+    return TARGET_DRIVE_FOLDER_ID;
   }
 
-  // Generate full system backup payload
-  public generateBackupPayload(currentUser?: User): SystemBackupPayload {
-    const rawPayload = storageService.exportFullBackup(currentUser);
-    return {
-      version: '3.0.0',
-      systemName: 'Controle e Auditoria de JOE - CPI/PMMA (Portaria nº 122/2026)',
-      targetAccountEmail: TARGET_GOOGLE_EMAIL,
-      createdAt: new Date().toISOString(),
-      generatedBy: currentUser ? `${currentUser.name} (${currentUser.login || currentUser.role})` : 'Sistema Automático CPI',
-      summary: {
-        usersCount: rawPayload.users.length,
-        ordinancesCount: rawPayload.ordinances.length,
-        operationsCount: rawPayload.operations.length,
-        budgetsCount: rawPayload.budgets.length,
-        commandsCount: rawPayload.commands.length,
-        officersCount: rawPayload.officers.length,
-        batchesCount: rawPayload.batches.length,
-        irregularitiesCount: rawPayload.irregularities.length,
-        auditLogsCount: rawPayload.auditLogs.length,
-      },
-      data: rawPayload,
-    };
-  }
-
-  // Find existing master backup file in Drive to overwrite instead of creating duplicates
-  private async findExistingMasterBackupFile(
-    token: string,
-    folderId: string
-  ): Promise<{ fileId: string | null; duplicateFileIds: string[] }> {
-    try {
-      // 1. Verify cached master file ID if available
-      if (this.masterFileId) {
-        try {
-          const checkRes = await fetch(
-            `https://www.googleapis.com/drive/v3/files/${this.masterFileId}?fields=id,name,trashed,parents`,
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
-          if (checkRes.ok) {
-            const data = await checkRes.json();
-            if (!data.trashed && Array.isArray(data.parents) && data.parents.includes(folderId)) {
-              return { fileId: this.masterFileId, duplicateFileIds: [] };
-            }
-          }
-        } catch {
-          // continue to search
-        }
-      }
-
-      // 2. Query folder for existing json backup files
-      const query = `'${folderId}' in parents and trashed=false`;
-      const searchRes = await fetch(
-        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
-          query
-        )}&fields=files(id,name,modifiedTime,createdTime)&orderBy=modifiedTime desc&pageSize=20`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      if (!searchRes.ok) {
-        return { fileId: null, duplicateFileIds: [] };
-      }
-
-      const searchData = await searchRes.json();
-      const files: any[] = searchData.files || [];
-
-      if (files.length === 0) {
-        return { fileId: null, duplicateFileIds: [] };
-      }
-
-      // Primary file to overwrite is the most recent backup
-      const primaryFile = files[0];
-      const duplicates = files.slice(1).map((f) => f.id);
-
-      this.masterFileId = primaryFile.id;
-      localStorage.setItem(STORAGE_KEYS.DRIVE_MASTER_FILE_ID, primaryFile.id);
-
-      // Clean up older duplicate backup files if any exist to maintain a single file
-      if (duplicates.length > 0) {
-        duplicates.forEach((dupId) => {
-          fetch(`https://www.googleapis.com/drive/v3/files/${dupId}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` },
-          }).catch(() => {});
-        });
-      }
-
-      return { fileId: primaryFile.id, duplicateFileIds: duplicates };
-    } catch (e) {
-      console.warn('Erro ao buscar arquivo mestre de backup no Drive:', e);
-      return { fileId: null, duplicateFileIds: [] };
-    }
-  }
-
-  // Upload or Overwrite Backup on Google Drive
+  // Upload Complete Excel Backup (.xlsx) to Google Drive Folder
   public async uploadBackupToDrive(
     currentUser?: User,
     isManual: boolean = false
-  ): Promise<{ success: boolean; fileId?: string; fileName?: string; isOverwritten?: boolean; message?: string }> {
+  ): Promise<{
+    success: boolean;
+    fileId?: string;
+    fileName?: string;
+    dayOfWeek?: string;
+    readableDate?: string;
+    webViewLink?: string;
+    message?: string;
+  }> {
     this.setStatus('SYNCING');
 
     try {
-      // Ensure token
       let token = this.accessToken;
       if (!this.isConnected()) {
         if (isManual) {
           token = await this.requestAuthorization(true);
         } else {
-          // In auto mode, if not authenticated, skip silently
           try {
             token = await this.requestAuthorization(false);
           } catch {
             this.setStatus('UNAUTHENTICATED');
             return {
               success: false,
-              message: 'Conta do Google Drive não conectada. Conecte para ativar o auto-salvamento.',
+              message: 'Google Drive requer autorização para salvar o backup.',
             };
           }
         }
@@ -390,57 +307,73 @@ class GoogleDriveBackupService {
         return { success: false, message: 'Google Drive não autorizado.' };
       }
 
-      const folderId = await this.getOrCreateBackupFolder(token);
-      const { fileId: existingFileId } = await this.findExistingMasterBackupFile(token, folderId);
-      const payload = this.generateBackupPayload(currentUser);
-      const jsonContent = JSON.stringify(payload, null, 2);
+      const folderId = await this.resolveTargetFolder(token);
 
-      const fileName = MASTER_BACKUP_FILE_NAME;
+      // Generate the official complete report workbook in Excel
+      const operations = storageService.getOperations();
+      const ordinance = storageService.getActiveOrdinance();
 
-      // Multipart boundary
+      const {
+        buffer,
+        fileName,
+        dayOfWeek,
+        readableDate,
+        totalAmount,
+        totalJoes,
+      } = await excelService.generateCompleteBackupBuffer(operations, ordinance, currentUser);
+
+      // Multipart upload of the .xlsx file to the designated Google Drive folder
       const boundary = '-------314159265358979323846';
-      const delimiter = `\r\n--${boundary}\r\n`;
-      const closeDelimiter = `\r\n--${boundary}--`;
-
-      const metadata: any = {
+      const metadata = {
         name: fileName,
-        mimeType: 'application/json',
-        description: `Backup Único Oficial do Sistema JOE - CPI/PMMA | ${
-          payload.summary.operationsCount
-        } Operações | ${payload.summary.ordinancesCount} Portarias | Gerado por: ${payload.generatedBy} | Atualizado em: ${new Date().toISOString()}`,
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        parents: [folderId],
+        description: `Relatório Completo de Backup Oficial CPI/PMMA | Salvo em: ${readableDate} | ${operations.length} Operações | ${totalJoes} JOEs | Valor Total: R$ ${totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} | Pasta: ${folderId}`,
       };
 
-      let uploadUrl: string;
-      let uploadMethod: string;
+      const metadataString = JSON.stringify(metadata);
+      const postBlob = new Blob(
+        [
+          `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadataString}\r\n--${boundary}\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`,
+          buffer,
+          `\r\n--${boundary}--`,
+        ],
+        { type: `multipart/related; boundary=${boundary}` }
+      );
 
-      if (existingFileId) {
-        // OVERWRITE existing file in Google Drive (PATCH method)
-        uploadUrl = `https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=multipart`;
-        uploadMethod = 'PATCH';
-      } else {
-        // Create initial master file (POST method)
-        metadata.parents = [folderId];
-        uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-        uploadMethod = 'POST';
+      let uploadRes = await fetch(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,webContentLink,size',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: postBlob,
+        }
+      );
+
+      // If specified folder rejected upload due to permissions, retry saving to user's Drive root or create local folder
+      if (!uploadRes.ok && (uploadRes.status === 403 || uploadRes.status === 404)) {
+        console.warn('Pasta designada inacessível com o token atual. Tentando salvar na raiz ou pasta criada...');
+        const fallbackMeta = { ...metadata, parents: [] };
+        const fallbackBlob = new Blob(
+          [
+            `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(fallbackMeta)}\r\n--${boundary}\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`,
+            buffer,
+            `\r\n--${boundary}--`,
+          ],
+          { type: `multipart/related; boundary=${boundary}` }
+        );
+
+        uploadRes = await fetch(
+          'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,webContentLink,size',
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+            body: fallbackBlob,
+          }
+        );
       }
-
-      const multipartRequestBody =
-        delimiter +
-        'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-        JSON.stringify(metadata) +
-        delimiter +
-        'Content-Type: application/json\r\n\r\n' +
-        jsonContent +
-        closeDelimiter;
-
-      const uploadRes = await fetch(uploadUrl, {
-        method: uploadMethod,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': `multipart/related; boundary=${boundary}`,
-        },
-        body: multipartRequestBody,
-      });
 
       if (!uploadRes.ok) {
         if (uploadRes.status === 401) {
@@ -454,22 +387,14 @@ class GoogleDriveBackupService {
       }
 
       const fileData = await uploadRes.json();
-      const savedFileId = fileData.id || existingFileId;
-      if (savedFileId) {
-        this.masterFileId = savedFileId;
-        localStorage.setItem(STORAGE_KEYS.DRIVE_MASTER_FILE_ID, savedFileId);
-      }
+      const savedFileId = fileData.id;
 
-      const now = new Date();
-      const pad = (n: number) => n.toString().padStart(2, '0');
-      const nowFormatted = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()} ${pad(
-        now.getHours()
-      )}:${pad(now.getMinutes())}`;
-
-      this.lastBackupTime = nowFormatted;
+      this.lastBackupTime = readableDate;
       this.lastBackupName = fileName;
-      localStorage.setItem(STORAGE_KEYS.LAST_BACKUP_TIME, nowFormatted);
+      this.lastBackupDay = dayOfWeek;
+      localStorage.setItem(STORAGE_KEYS.LAST_BACKUP_TIME, readableDate);
       localStorage.setItem(STORAGE_KEYS.LAST_BACKUP_NAME, fileName);
+      localStorage.setItem(STORAGE_KEYS.LAST_BACKUP_DAY, dayOfWeek);
 
       // Audit log
       if (currentUser) {
@@ -478,10 +403,8 @@ class GoogleDriveBackupService {
           userRole: currentUser.role,
           action: 'BACKUP_CRIADO',
           module: 'BACKUP',
-          recordId: `drive-file #${savedFileId?.slice(0, 8)}`,
-          description: existingFileId
-            ? `Backup oficial no Google Drive sobrescrito/atualizado com sucesso (${TARGET_GOOGLE_EMAIL}): ${fileName} (${payload.summary.operationsCount} ops, ${payload.summary.usersCount} users)`
-            : `Backup oficial criado no Google Drive (${TARGET_GOOGLE_EMAIL}): ${fileName} (${payload.summary.operationsCount} ops, ${payload.summary.usersCount} users)`,
+          recordId: `drive #${savedFileId?.slice(0, 8)}`,
+          description: `Backup oficial em Excel (.xlsx) salvo com sucesso no Google Drive: ${fileName} (${readableDate}, ${operations.length} operações). Pasta: ${folderId}`,
           ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
         });
       }
@@ -491,10 +414,10 @@ class GoogleDriveBackupService {
         success: true,
         fileId: savedFileId,
         fileName,
-        isOverwritten: Boolean(existingFileId),
-        message: existingFileId
-          ? 'Backup no Google Drive atualizado com sucesso (arquivo sobrescrito)!'
-          : 'Backup inicial criado com sucesso no Google Drive!',
+        dayOfWeek,
+        readableDate,
+        webViewLink: fileData.webViewLink || `${TARGET_DRIVE_FOLDER_LINK}`,
+        message: `Relatório Completo de Backup salvo no Google Drive com sucesso (${fileName})!`,
       };
     } catch (err: any) {
       console.error('Erro no upload para Google Drive:', err);
@@ -506,7 +429,31 @@ class GoogleDriveBackupService {
     }
   }
 
-  // List Backups in Google Drive
+  // Trigger Automatic Backup on Data Modification (Debounced to avoid excessive writes)
+  public scheduleAutoBackup(currentUser?: User) {
+    if (!this.isAutoBackupEnabled) return;
+
+    if (this.autoBackupDebounceTimer) {
+      clearTimeout(this.autoBackupDebounceTimer);
+    }
+
+    this.setStatus('SYNCING');
+
+    this.autoBackupDebounceTimer = setTimeout(async () => {
+      if (this.isConnected()) {
+        try {
+          await this.uploadBackupToDrive(currentUser, false);
+        } catch (err) {
+          console.warn('Falha no auto-backup para Google Drive:', err);
+          this.setStatus('SAVED_LOCAL');
+        }
+      } else {
+        this.setStatus('SAVED_LOCAL');
+      }
+    }, 2500);
+  }
+
+  // List Backups in Google Drive Folder (both Excel .xlsx and legacy .json)
   public async listDriveBackups(): Promise<{
     success: boolean;
     files: DriveBackupFileMeta[];
@@ -518,13 +465,13 @@ class GoogleDriveBackupService {
         token = await this.requestAuthorization(true);
       }
 
-      const folderId = await this.getOrCreateBackupFolder(token);
+      const folderId = await this.resolveTargetFolder(token);
       const query = `'${folderId}' in parents and trashed=false`;
 
       const listRes = await fetch(
         `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
           query
-        )}&fields=files(id,name,size,createdTime,modifiedTime,description)&orderBy=createdTime desc&pageSize=30`,
+        )}&fields=files(id,name,size,createdTime,modifiedTime,description,mimeType,webViewLink,webContentLink)&orderBy=createdTime desc&pageSize=50`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -539,14 +486,40 @@ class GoogleDriveBackupService {
       }
 
       const data = await listRes.json();
-      const files: DriveBackupFileMeta[] = (data.files || []).map((f: any) => ({
-        id: f.id,
-        name: f.name,
-        size: f.size ? `${(parseInt(f.size, 10) / 1024).toFixed(1)} KB` : 'Tamanho N/A',
-        createdTime: f.createdTime,
-        modifiedTime: f.modifiedTime,
-        description: f.description,
-      }));
+      const files: DriveBackupFileMeta[] = (data.files || []).map((f: any) => {
+        // Extract day of week if present in filename or compute from createdTime
+        let dayOfWeek: string | undefined;
+        const daysPt = [
+          'Domingo',
+          'Segunda-Feira',
+          'Terça-Feira',
+          'Quarta-Feira',
+          'Quinta-Feira',
+          'Sexta-Feira',
+          'Sábado',
+        ];
+        if (f.name) {
+          const match = daysPt.find((d) => f.name.toLowerCase().includes(d.toLowerCase()));
+          if (match) dayOfWeek = match;
+        }
+        if (!dayOfWeek && f.createdTime) {
+          const d = new Date(f.createdTime);
+          dayOfWeek = daysPt[d.getDay()];
+        }
+
+        return {
+          id: f.id,
+          name: f.name,
+          size: f.size ? `${(parseInt(f.size, 10) / 1024).toFixed(1)} KB` : 'N/A',
+          createdTime: f.createdTime,
+          modifiedTime: f.modifiedTime,
+          description: f.description,
+          mimeType: f.mimeType,
+          webViewLink: f.webViewLink,
+          webContentLink: f.webContentLink,
+          dayOfWeek,
+        };
+      });
 
       return { success: true, files };
     } catch (err: any) {
@@ -558,7 +531,36 @@ class GoogleDriveBackupService {
     }
   }
 
-  // Download backup content from Drive and return parsed payload
+  // Download backup content from Drive (either raw blob or JSON payload)
+  public async downloadDriveBackupFile(fileId: string, fileName: string): Promise<void> {
+    let token = this.accessToken;
+    if (!this.isConnected()) {
+      token = await this.requestAuthorization(true);
+    }
+
+    const downloadRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+
+    if (!downloadRes.ok) {
+      throw new Error('Falha ao baixar arquivo de backup do Google Drive.');
+    }
+
+    const blob = await downloadRes.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  // Download backup content from Drive and return parsed JSON payload
   public async downloadDriveBackupContent(fileId: string): Promise<{
     success: boolean;
     payload?: SystemBackupPayload;
@@ -593,29 +595,100 @@ class GoogleDriveBackupService {
     }
   }
 
-  // Trigger Automatic Backup on Data Modification (Debounced)
-  public scheduleAutoBackup(currentUser?: User) {
-    if (!this.isAutoBackupEnabled) return;
+  // Download Local Excel Backup immediately
+  public async downloadLocalExcelBackup(currentUser?: User): Promise<void> {
+    const operations = storageService.getOperations();
+    const ordinance = storageService.getActiveOrdinance();
+    const { buffer, fileName, readableDate } = await excelService.generateCompleteBackupBuffer(
+      operations,
+      ordinance,
+      currentUser
+    );
 
-    if (this.autoBackupDebounceTimer) {
-      clearTimeout(this.autoBackupDebounceTimer);
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    if (currentUser) {
+      storageService.logAudit({
+        userName: currentUser.name,
+        userRole: currentUser.role,
+        action: 'BACKUP_CRIADO',
+        module: 'BACKUP',
+        recordId: `local-excel #${Date.now().toString().slice(-4)}`,
+        description: `Download local de Relatório Completo de Backup em Excel: ${fileName} (${readableDate})`,
+        ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
+      });
     }
+  }
 
-    this.setStatus('SYNCING');
+  // Generate full system backup payload (JSON format for system replication)
+  public generateBackupPayload(currentUser?: User): SystemBackupPayload {
+    const rawPayload = storageService.exportFullBackup(currentUser);
+    return {
+      version: '3.0.0',
+      systemName: 'Controle e Auditoria de JOE - CPI/PMMA (Portaria nº 122/2026)',
+      targetAccountEmail: TARGET_GOOGLE_EMAIL,
+      createdAt: new Date().toISOString(),
+      generatedBy: currentUser
+        ? `${currentUser.name} (${currentUser.login || currentUser.role})`
+        : 'Sistema Automático CPI',
+      summary: {
+        usersCount: rawPayload.users.length,
+        ordinancesCount: rawPayload.ordinances.length,
+        operationsCount: rawPayload.operations.length,
+        budgetsCount: rawPayload.budgets.length,
+        commandsCount: rawPayload.commands.length,
+        officersCount: rawPayload.officers.length,
+        batchesCount: rawPayload.batches.length,
+        irregularitiesCount: rawPayload.irregularities.length,
+        auditLogsCount: rawPayload.auditLogs.length,
+      },
+      data: rawPayload,
+    };
+  }
 
-    this.autoBackupDebounceTimer = setTimeout(async () => {
-      if (this.isConnected()) {
-        try {
-          await this.uploadBackupToDrive(currentUser, false);
-        } catch (err) {
-          console.warn('Falha no auto-backup para Google Drive:', err);
-          this.setStatus('SAVED_LOCAL');
-        }
-      } else {
-        // Mark as saved locally, drive pending auth
-        this.setStatus('SAVED_LOCAL');
-      }
-    }, 2000);
+  // Download legacy Backup JSON file to local computer
+  public downloadLocalBackupFile(currentUser?: User) {
+    const payload = this.generateBackupPayload(currentUser);
+    const jsonString = JSON.stringify(payload, null, 2);
+
+    const now = new Date();
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const dateTag = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(
+      now.getHours()
+    )}-${pad(now.getMinutes())}`;
+    const filename = `backup_sistema_joe_cpi_pmma_${dateTag}.json`;
+
+    const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    if (currentUser) {
+      storageService.logAudit({
+        userName: currentUser.name,
+        userRole: currentUser.role,
+        action: 'BACKUP_CRIADO',
+        module: 'BACKUP',
+        recordId: `export-json #${Date.now().toString().slice(-4)}`,
+        description: `Download de arquivo de backup offline: ${filename}`,
+        ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
+      });
+    }
   }
 
   // Validate System Backup JSON
@@ -686,41 +759,6 @@ class GoogleDriveBackupService {
         success: false,
         message: err.message || 'Erro ao processar restauração do banco de dados.',
       };
-    }
-  }
-
-  // Download Backup JSON file to local computer
-  public downloadLocalBackupFile(currentUser?: User) {
-    const payload = this.generateBackupPayload(currentUser);
-    const jsonString = JSON.stringify(payload, null, 2);
-
-    const now = new Date();
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    const dateTag = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(
-      now.getHours()
-    )}-${pad(now.getMinutes())}`;
-    const filename = `backup_sistema_joe_cpi_pmma_${dateTag}.json`;
-
-    const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    if (currentUser) {
-      storageService.logAudit({
-        userName: currentUser.name,
-        userRole: currentUser.role,
-        action: 'BACKUP_CRIADO',
-        module: 'BACKUP',
-        recordId: `export-json #${Date.now().toString().slice(-4)}`,
-        description: `Download de arquivo de backup offline: ${filename}`,
-        ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
-      });
     }
   }
 }

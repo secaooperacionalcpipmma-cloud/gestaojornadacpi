@@ -241,6 +241,10 @@ export interface DriveBackupFileMeta {
   createdTime: string;
   modifiedTime?: string;
   description?: string;
+  mimeType?: string;
+  webViewLink?: string;
+  webContentLink?: string;
+  dayOfWeek?: string;
   summary?: SystemBackupPayload['summary'];
 }
 

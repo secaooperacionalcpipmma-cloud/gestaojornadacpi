@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Cloud,
-  CloudCheck,
   CloudUpload,
   Download,
   Upload,
   RefreshCw,
+  RotateCcw,
   CheckCircle2,
   AlertTriangle,
   FileJson,
@@ -21,9 +21,13 @@ import {
   Lock,
   Sparkles,
   Trash2,
+  FileSpreadsheet,
+  ExternalLink,
 } from 'lucide-react';
 import {
   googleDriveBackupService,
+  TARGET_DRIVE_FOLDER_LINK,
+  TARGET_DRIVE_FOLDER_ID,
 } from '../../services/googleDriveBackupService';
 import {
   User,
@@ -194,6 +198,25 @@ export function BackupManagerModal({
       showFeedback('error', err.message || 'Erro durante o upload.');
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleDownloadLocalExcel = async () => {
+    try {
+      await googleDriveBackupService.downloadLocalExcelBackup(currentUser);
+      showFeedback('success', 'Relatório Completo de Backup em Excel (.xlsx) baixado com sucesso!');
+    } catch (err: any) {
+      showFeedback('error', err.message || 'Erro ao gerar arquivo Excel de backup.');
+    }
+  };
+
+  const handleDownloadDriveFile = async (file: DriveBackupFileMeta) => {
+    try {
+      showFeedback('info', `Baixando "${file.name}" do Google Drive...`);
+      await googleDriveBackupService.downloadDriveBackupFile(file.id, file.name);
+      showFeedback('success', `Arquivo "${file.name}" baixado com sucesso!`);
+    } catch (err: any) {
+      showFeedback('error', err.message || 'Falha ao baixar arquivo do Google Drive.');
     }
   };
 
@@ -539,12 +562,12 @@ export function BackupManagerModal({
         {activeSubTab === 'DRIVE' && (
           <div className="space-y-4">
             {/* Account & Sync Status Banner */}
-            <div className="bg-gradient-to-r from-sky-50 to-indigo-50/50 rounded-2xl p-4 border border-sky-200/70">
+            <div className="bg-gradient-to-r from-sky-50 via-indigo-50/50 to-emerald-50/40 rounded-2xl p-4 border border-sky-200">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-black uppercase tracking-wider text-sky-900">
-                      Conta Oficial de Armazenamento
+                    <span className="text-[11px] font-black uppercase tracking-wider text-[#002D5A]">
+                      Pasta Oficial de Backup no Google Drive
                     </span>
                     <span
                       className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
@@ -561,36 +584,61 @@ export function BackupManagerModal({
                       {isDriveConnected ? 'Conectado & Autorizado' : 'Requer Autorização'}
                     </span>
                   </div>
-                  <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5 font-mono">
-                    <span>{googleDriveBackupService.getTargetEmail()}</span>
+
+                  <div className="text-xs text-slate-700 space-y-0.5">
+                    <p className="flex items-center gap-1.5">
+                      <span className="font-semibold text-slate-900">Conta:</span>
+                      <span className="font-mono text-[#002D5A] font-bold">{googleDriveBackupService.getTargetEmail()}</span>
+                    </p>
+                    <p className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-semibold text-slate-900">Link da Pasta:</span>
+                      <a
+                        href={TARGET_DRIVE_FOLDER_LINK}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-mono text-xs text-sky-700 hover:text-sky-900 underline flex items-center gap-1 font-semibold"
+                        title="Abrir pasta no Google Drive em nova aba"
+                      >
+                        <span className="truncate max-w-xs sm:max-w-md">{TARGET_DRIVE_FOLDER_LINK}</span>
+                        <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                      </a>
+                    </p>
                   </div>
-                  <p className="text-xs text-slate-600">
-                    Pasta de Destino no Google Drive:{' '}
-                    <strong className="text-slate-800 font-mono">BACKUP_SISTEMA_JOE_CPI_PMMA</strong>
-                  </p>
                 </div>
 
-                {!isDriveConnected ? (
-                  <button
-                    onClick={handleConnectDrive}
-                    disabled={isUploading}
-                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[#002D5A] hover:bg-[#001F3F] text-white shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95 shrink-0"
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <a
+                    href={TARGET_DRIVE_FOLDER_LINK}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-2 rounded-xl text-xs font-bold bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 shadow-2xs transition-all flex items-center justify-center gap-1.5 shrink-0"
                   >
-                    <CloudUpload className="w-4 h-4 text-sky-300" />
-                    <span>{isUploading ? 'Conectando...' : 'Conectar Google Drive'}</span>
-                  </button>
-                ) : (
-                  <div className="text-right">
-                    <span className="text-[11px] text-slate-500 block">Último backup salvo:</span>
-                    <span className="text-xs font-bold text-slate-800">
-                      {lastBackupTime || 'Nenhum nesta sessão'}
-                    </span>
-                  </div>
-                )}
+                    <ExternalLink className="w-3.5 h-3.5 text-sky-600" />
+                    <span>Abrir Pasta no Drive</span>
+                  </a>
+
+                  {!isDriveConnected ? (
+                    <button
+                      onClick={handleConnectDrive}
+                      disabled={isUploading}
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-[#002D5A] hover:bg-[#001F3F] text-white shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 shrink-0"
+                    >
+                      <CloudUpload className="w-4 h-4 text-sky-300" />
+                      <span>{isUploading ? 'Conectando...' : 'Conectar Google Drive'}</span>
+                    </button>
+                  ) : (
+                    <div className="text-right sm:text-left bg-white/80 px-3 py-1.5 rounded-xl border border-emerald-200">
+                      <span className="text-[10px] text-slate-500 block">Último backup em Excel:</span>
+                      <span className="text-xs font-bold text-slate-800">
+                        {lastBackupTime || 'Nenhum nesta sessão'}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Auto-Backup Toggle */}
-              <div className="mt-3.5 pt-3 border-t border-sky-200/60 flex items-center justify-between">
+              {/* Requirement highlights */}
+              <div className="mt-3 pt-3 border-t border-sky-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -603,27 +651,27 @@ export function BackupManagerModal({
                     htmlFor="autoBackupToggle"
                     className="text-xs font-bold text-slate-800 cursor-pointer select-none"
                   >
-                    Salvar backup automaticamente no Google Drive toda vez que houver novos dados ou alterações
+                    Salvar backup em Excel (.xlsx) automaticamente no Google Drive com Data e Dia a cada alteração
                   </label>
                 </div>
 
-                <span className="text-[11px] font-semibold text-sky-800 hidden sm:inline">
-                  {isAutoBackup ? '✓ Ativado' : 'Desativado'}
+                <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 shrink-0">
+                  {isAutoBackup ? '✓ Salvar Auto Ativo' : 'Desativado'}
                 </span>
               </div>
             </div>
 
-            {/* Quick Actions */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Immediate Drive Upload */}
-              <div className="bg-white rounded-xl p-4 border border-slate-200 hover:border-sky-300 transition-all flex flex-col justify-between space-y-3">
+            {/* Quick Actions for Excel & Drive */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Immediate Drive Excel Upload */}
+              <div className="bg-white rounded-xl p-4 border border-sky-200 hover:border-sky-400 transition-all flex flex-col justify-between space-y-3 shadow-2xs">
                 <div>
                   <div className="flex items-center gap-2 text-xs font-bold text-[#002D5A]">
-                    <CloudUpload className="w-4 h-4 text-sky-600" />
-                    <span>Salvar Backup Imediato no Google Drive</span>
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                    <span>Salvar no Google Drive Agora</span>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                    Gera um snapshot completo de todas as portarias, lançamentos de JOE, tetos e usuários e envia para o Google Drive agora.
+                    Gera o <strong>Relatório Completo em Excel (.xlsx)</strong> com Data e Dia da Semana e envia diretamente para a pasta indicada no Drive.
                   </p>
                 </div>
 
@@ -640,21 +688,42 @@ export function BackupManagerModal({
                   ) : (
                     <>
                       <CloudUpload className="w-3.5 h-3.5 text-sky-300" />
-                      <span>Fazer Backup Agora</span>
+                      <span>Subir Excel para o Drive</span>
                     </>
                   )}
                 </button>
               </div>
 
-              {/* Local Offline JSON Download */}
-              <div className="bg-white rounded-xl p-4 border border-slate-200 hover:border-sky-300 transition-all flex flex-col justify-between space-y-3">
+              {/* Local Excel Download */}
+              <div className="bg-white rounded-xl p-4 border border-slate-200 hover:border-emerald-300 transition-all flex flex-col justify-between space-y-3 shadow-2xs">
                 <div>
                   <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
                     <Download className="w-4 h-4 text-emerald-600" />
-                    <span>Baixar Arquivo JSON (Backup Local)</span>
+                    <span>Baixar Relatório Excel (.xlsx)</span>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                    Salva o arquivo <code className="font-mono font-semibold">.json</code> no seu computador para arquivamento externo ou transferência manual.
+                    Baixa o Relatório Completo de Backup diretamente em planilha Excel com Quadro Resumo CPI e detalhamento de operações.
+                  </p>
+                </div>
+
+                <button
+                  onClick={handleDownloadLocalExcel}
+                  className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Baixar Excel Oficial (.xlsx)</span>
+                </button>
+              </div>
+
+              {/* Local JSON Download */}
+              <div className="bg-white rounded-xl p-4 border border-slate-200 hover:border-slate-300 transition-all flex flex-col justify-between space-y-3 shadow-2xs">
+                <div>
+                  <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                    <Database className="w-4 h-4 text-slate-600" />
+                    <span>Baixar Cópia Bruta (.JSON)</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                    Exporta o snapshot completo dos dados do sistema em formato JSON para fins de restauração instantânea do banco.
                   </p>
                 </div>
 
@@ -895,42 +964,86 @@ export function BackupManagerModal({
                 </p>
               </div>
             ) : (
-              <div className="max-h-72 overflow-y-auto space-y-2 divide-y divide-slate-100">
-                {driveBackups.map((file) => (
-                  <div
-                    key={file.id}
-                    className="p-3 bg-white hover:bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors"
-                  >
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2">
-                        <FileJson className="w-4 h-4 text-sky-600 shrink-0" />
-                        <span className="text-xs font-bold text-slate-900">{file.name}</span>
+              <div className="max-h-80 overflow-y-auto space-y-2 divide-y divide-slate-100">
+                {driveBackups.map((file) => {
+                  const isExcel = file.name.endsWith('.xlsx') || file.mimeType?.includes('spreadsheet') || file.mimeType?.includes('excel');
+
+                  return (
+                    <div
+                      key={file.id}
+                      className="p-3 bg-white hover:bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {isExcel ? (
+                            <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                          ) : (
+                            <FileJson className="w-4 h-4 text-sky-600 shrink-0" />
+                          )}
+                          <span className="text-xs font-bold text-slate-900 break-all">{file.name}</span>
+                          {file.dayOfWeek && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-200">
+                              {file.dayOfWeek}
+                            </span>
+                          )}
+                          {isExcel && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              Excel .xlsx
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-3 text-[10px] text-slate-500 pl-6">
+                          <span>Data: {new Date(file.createdTime).toLocaleString('pt-BR')}</span>
+                          {file.size && <span>Tamanho: {file.size}</span>}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3 text-[10px] text-slate-500 pl-6">
-                        <span>Data: {new Date(file.createdTime).toLocaleString('pt-BR')}</span>
-                        {file.size && <span>Tamanho: {file.size}</span>}
+
+                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                        {file.webViewLink && (
+                          <a
+                            href={file.webViewLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 transition-all flex items-center gap-1"
+                            title="Abrir no Google Drive / Sheets"
+                          >
+                            <ExternalLink className="w-3 h-3 text-sky-600" />
+                            <span>Abrir no Drive</span>
+                          </a>
+                        )}
+
+                        {isExcel ? (
+                          <button
+                            onClick={() => handleDownloadDriveFile(file)}
+                            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                          >
+                            <Download className="w-3 h-3 text-emerald-200" />
+                            <span>Baixar Planilha</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleRestoreFromDriveFile(file)}
+                            disabled={restoringDriveFileId === file.id}
+                            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#002D5A] hover:bg-[#001F3F] text-white shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                          >
+                            {restoringDriveFileId === file.id ? (
+                              <>
+                                <RefreshCw className="w-3 h-3 animate-spin" />
+                                <span>Restaurando...</span>
+                              </>
+                            ) : (
+                              <>
+                                <RotateCcw className="w-3.5 h-3.5 text-sky-300" />
+                                <span>Restaurar BD</span>
+                              </>
+                            )}
+                          </button>
+                        )}
                       </div>
                     </div>
-
-                    <button
-                      onClick={() => handleRestoreFromDriveFile(file)}
-                      disabled={restoringDriveFileId === file.id}
-                      className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-[#002D5A] hover:bg-[#001F3F] text-white shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0 self-end sm:self-center"
-                    >
-                      {restoringDriveFileId === file.id ? (
-                        <>
-                          <RefreshCw className="w-3 h-3 animate-spin" />
-                          <span>Restaurando...</span>
-                        </>
-                      ) : (
-                        <>
-                          <RotateCcw className="w-3.5 h-3.5 text-sky-300" />
-                          <span>Restaurar deste Backup</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -952,25 +1065,5 @@ export function BackupManagerModal({
         </div>
       </div>
     </div>
-  );
-}
-
-function RotateCcw(props: any) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-    </svg>
   );
 }

@@ -40,6 +40,7 @@ interface HeaderNavProps {
   onOpenCreateOrdinance?: () => void;
   onExportCsv?: () => void;
   onOpenBackupModal?: () => void;
+  onQuickSaveExcelToDrive?: () => void;
   onLogout?: () => void;
   onSyncDatabase?: () => Promise<void> | void;
 }
@@ -56,6 +57,7 @@ export function HeaderNav({
   onOpenCreateOrdinance,
   onExportCsv,
   onOpenBackupModal,
+  onQuickSaveExcelToDrive,
   onLogout,
   onSyncDatabase,
 }: HeaderNavProps) {
@@ -337,6 +339,17 @@ export function HeaderNav({
                     : 'bg-sky-400'
                 }`}
               ></span>
+            </button>
+
+            {/* Quick Test: Save Latest Report to Google Drive */}
+            <button
+              onClick={onQuickSaveExcelToDrive || onOpenBackupModal}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-700 hover:bg-emerald-600 text-white transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 border border-emerald-500/60"
+              title="Salvar o relatório mais atual no Google Drive para teste agora (.xlsx)"
+            >
+              <CloudUpload className="w-3.5 h-3.5 text-emerald-200" />
+              <span className="hidden lg:inline">Salvar no Drive (Teste)</span>
+              <span className="lg:hidden">Salvar Drive</span>
             </button>
 
             {/* New Ordinance Button */}

@@ -341,6 +341,24 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  const handleQuickSaveToDrive = async () => {
+    try {
+      showToast('info', 'Google Drive', 'Gerando relatório mais atual e enviando para a pasta de teste no Google Drive...');
+      const res = await googleDriveBackupService.uploadBackupToDrive(currentUser || undefined, true);
+      if (res.success) {
+        showToast(
+          'success',
+          'Relatório Salvo no Google Drive!',
+          `Arquivo "${res.fileName}" salvo com sucesso na pasta oficial do Google Drive (${res.dayOfWeek}).`
+        );
+      } else {
+        showToast('error', 'Falha no Google Drive', res.message || 'Não foi possível salvar o arquivo.');
+      }
+    } catch (err: any) {
+      showToast('error', 'Erro no Google Drive', err.message || 'Erro durante o envio para o Google Drive.');
+    }
+  };
+
   // If no user is logged in, show mandatory login authentication screen
   if (!currentUser) {
     return <LoginView onLoginSuccess={handleLoginSuccess} />;
@@ -367,6 +385,7 @@ export default function App() {
         onExportCsv={handleExportCsv}
         onOpenCreateOrdinance={() => setIsCreateOrdinanceOpen(true)}
         onOpenBackupModal={() => setIsBackupModalOpen(true)}
+        onQuickSaveExcelToDrive={handleQuickSaveToDrive}
         onLogout={handleLogout}
         onSyncDatabase={handleManualSync}
       />

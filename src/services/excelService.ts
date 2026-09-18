@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import { OperationLaunch, CommandBudget, OrdinancePeriod, CommandUnit } from '../types';
+import { OperationLaunch, CommandBudget, OrdinancePeriod, CommandUnit, User } from '../types';
 import { formatCurrencyBRL } from '../utils/formatters';
 import {
   normalizeCommandName,
@@ -692,4 +692,423 @@ export const excelService = {
 
     await saveWorkbook(workbook, `CPI_Consolidacao_Pagadoria_${batchNumber.replace(/[^a-zA-Z0-9]/g, '_')}.xlsx`);
   },
+
+  // 4. Gerar buffer do Relatório Completo oficial de Backup em Excel contendo Data e Dia da Semana
+  async generateCompleteBackupBuffer(
+    operations: OperationLaunch[],
+    ordinance?: OrdinancePeriod | null,
+    currentUser?: User
+  ): Promise<{
+    buffer: ArrayBuffer;
+    fileName: string;
+    dayOfWeek: string;
+    dateStamp: string;
+    timeStamp: string;
+    readableDate: string;
+    totalAmount: number;
+    totalJoes: number;
+  }> {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = currentUser?.name || 'Seção Operacional CPI/PMMA';
+    workbook.lastModifiedBy = currentUser?.name || 'Sistema JOE CPI';
+    workbook.created = new Date();
+    workbook.modified = new Date();
+
+    const now = new Date();
+    const daysPt = [
+      'Domingo',
+      'Segunda-Feira',
+      'Terça-Feira',
+      'Quarta-Feira',
+      'Quinta-Feira',
+      'Sexta-Feira',
+      'Sábado',
+    ];
+    const dayOfWeek = daysPt[now.getDay()];
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const day = pad(now.getDate());
+    const month = pad(now.getMonth() + 1);
+    const year = now.getFullYear();
+    const hours = pad(now.getHours());
+    const minutes = pad(now.getMinutes());
+
+    const dateStamp = `${day}-${month}-${year}`;
+    const timeStamp = `${hours}h${minutes}min`;
+    const readableDate = `${dayOfWeek}, ${day}/${month}/${year} às ${hours}:${minutes}`;
+    const fileName = `Backup_Relatorio_Completo_CPI_PMMA_${dateStamp}_${dayOfWeek}_${timeStamp}.xlsx`;
+
+    // Sort operations in official ascending order: CPI -> CPA/I-1 to CPA/I-9
+    const sortedOps = sortOperationsOfficial(operations);
+
+    // ==========================================
+    // ABA 1: QUADRO RESUMO CPI (PRINT 02 OFICIAL)
+    // ==========================================
+    const wsResumo = workbook.addWorksheet('Quadro Resumo CPI', {
+      views: [{ showGridLines: true }],
+    });
+
+    wsResumo.columns = [
+      { width: 4 },  // A
+      { width: 18 }, // B: UNIDADE
+      { width: 32 }, // C: VALOR TOTAL DISPONIBILIZADO
+      { width: 18 }, // D: QUANT. JOE
+      { width: 24 }, // E: VALOR EXECUTADO
+      { width: 26 }, // F: QUANT. JOE EXECUTADA
+      { width: 24 }, // G: VALOR DISPONÍVEL
+      { width: 26 }, // H: QUANT. JOE DISPONÍVEL
+    ];
+
+    wsResumo.addRow([]);
+
+    // Header CPI
+    const r1 = wsResumo.addRow(['', 'CPI - COMANDO DE POLICIAMENTO DO INTERIOR', '', '', '', '', '', '']);
+    wsResumo.mergeCells('B2:H2');
+    r1.getCell(2).font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FF0F172A' } };
+    r1.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
+    r1.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+    for (let c = 2; c <= 8; c++) r1.getCell(c).border = darkBorder;
+    r1.height = 28;
+
+    // Subheader
+    const r2 = wsResumo.addRow(['', 'QUADRO RESUMO OFICIAL DE EXECUÇÃO - PORTARIA Nº 122/2026', '', '', '', '', '', '']);
+    wsResumo.mergeCells('B3:H3');
+    r2.getCell(2).font = { name: 'Arial', size: 10.5, bold: true, color: { argb: 'FF0F172A' } };
+    r2.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
+    r2.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+    for (let c = 2; c <= 8; c++) r2.getCell(c).border = darkBorder;
+    r2.height = 24;
+
+    // Table Header
+    const rH = wsResumo.addRow([
+      '',
+      'UNIDADE',
+      'VALOR TOTAL DISPONIBILIZADO',
+      'QUANT. JOE',
+      'VALOR EXECUTADO',
+      'QUANT. JOE EXECUTADA',
+      'VALOR DISPONÍVEL',
+      'QUANT. JOE DISPONÍVEL',
+    ]);
+    rH.height = 26;
+    for (let c = 2; c <= 8; c++) {
+      const cell = rH.getCell(c);
+      cell.font = { name: 'Arial', size: 9.5, bold: true, color: { argb: 'FF0F172A' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFCBD5E1' } };
+      cell.border = thinBorder;
+    }
+
+    const standardCodes = [...OFFICIAL_COMMAND_CODES];
+    const defaultDisponibilizado: Record<string, { val: number; joes: number }> = {
+      'CPI': { val: 10500, joes: 30 },
+      'CPA/I-1': { val: 65100, joes: 186 },
+      'CPA/I-2': { val: 65100, joes: 186 },
+      'CPA/I-3': { val: 105000, joes: 300 },
+      'CPA/I-4': { val: 65100, joes: 186 },
+      'CPA/I-5': { val: 80500, joes: 230 },
+      'CPA/I-6': { val: 59500, joes: 170 },
+      'CPA/I-7': { val: 65100, joes: 186 },
+      'CPA/I-8': { val: 65100, joes: 186 },
+      'CPA/I-9': { val: 79100, joes: 226 },
+    };
+
+    const sumMap: Record<string, number> = {};
+    const sumJoeMap: Record<string, number> = {};
+    standardCodes.forEach((code) => {
+      sumMap[code] = 0;
+      sumJoeMap[code] = 0;
+    });
+
+    sortedOps.forEach((op) => {
+      const formatted = normalizeCommandName(op.commandId);
+      const val = Number(op.totalValue) || 0;
+      const joes = Number(op.officersCount) || 0;
+      if (sumMap[formatted] !== undefined) {
+        sumMap[formatted] += val;
+        sumJoeMap[formatted] += joes;
+      } else {
+        const match = standardCodes.find((sc) => normalizeCommandName(formatted) === sc);
+        if (match) {
+          sumMap[match] += val;
+          sumJoeMap[match] += joes;
+        }
+      }
+    });
+
+    let totDisp = 0;
+    let totQJoe = 0;
+    let totExec = 0;
+    let totQExec = 0;
+
+    standardCodes.forEach((code) => {
+      const def = defaultDisponibilizado[code] || { val: 0, joes: 0 };
+      const valTotal = def.val;
+      const quantJoe = def.joes;
+      const valExec = sumMap[code] || 0;
+      const quantExec = sumJoeMap[code] || 0;
+      const valDisp = valTotal - valExec;
+      const quantDisp = quantJoe - quantExec;
+
+      totDisp += valTotal;
+      totQJoe += quantJoe;
+      totExec += valExec;
+      totQExec += quantExec;
+
+      const row = wsResumo.addRow(['', code, valTotal, quantJoe, valExec, quantExec, valDisp, quantDisp]);
+      row.height = 20;
+
+      const cellCode = row.getCell(2);
+      cellCode.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF1E293B' } };
+      cellCode.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellCode.border = thinBorder;
+
+      const cellTot = row.getCell(3);
+      cellTot.font = { name: 'Arial', size: 10, color: { argb: 'FF0F172A' } };
+      cellTot.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellTot.numFmt = '#,##0.00';
+      cellTot.border = thinBorder;
+
+      const cellQJoe = row.getCell(4);
+      cellQJoe.font = { name: 'Arial', size: 10, color: { argb: 'FF0F172A' } };
+      cellQJoe.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellQJoe.border = thinBorder;
+
+      const cellExec = row.getCell(5);
+      cellExec.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF0F172A' } };
+      cellExec.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellExec.numFmt = '"R$"\\ #,##0.00';
+      cellExec.border = thinBorder;
+
+      const cellQExec = row.getCell(6);
+      cellQExec.font = { name: 'Arial', size: 10, color: { argb: 'FF0F172A' } };
+      cellQExec.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellQExec.border = thinBorder;
+
+      const cellDisp = row.getCell(7);
+      cellDisp.font = {
+        name: 'Arial',
+        size: 10,
+        bold: valDisp < 0,
+        color: { argb: valDisp < 0 ? 'FFB91C1C' : 'FF0F172A' },
+      };
+      cellDisp.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellDisp.numFmt = '#,##0.00;-#,##0.00;"0,00"';
+      cellDisp.border = thinBorder;
+
+      const cellQDisp = row.getCell(8);
+      cellQDisp.font = {
+        name: 'Arial',
+        size: 10,
+        bold: quantDisp < 0,
+        color: { argb: quantDisp < 0 ? 'FFB91C1C' : 'FF0F172A' },
+      };
+      cellQDisp.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellQDisp.border = thinBorder;
+    });
+
+    const totDispVal = totDisp - totExec;
+    const totQDisp = totQJoe - totQExec;
+
+    // TOTAL GERAL CPI
+    const rowTotResumo = wsResumo.addRow([
+      '',
+      'TOTAL GERAL CPI',
+      totDisp,
+      totQJoe,
+      totExec,
+      totQExec,
+      totDispVal,
+      totQDisp,
+    ]);
+    rowTotResumo.height = 26;
+    for (let c = 2; c <= 8; c++) {
+      const cell = rowTotResumo.getCell(c);
+      cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF0F172A' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFCBD5E1' } };
+      cell.border = darkBorder;
+    }
+    rowTotResumo.getCell(3).numFmt = '#,##0.00';
+    rowTotResumo.getCell(5).numFmt = '"R$"\\ #,##0.00';
+    rowTotResumo.getCell(7).numFmt = '#,##0.00;-#,##0.00;"0,00"';
+
+    // ==========================================
+    // ABA 2: DETALHAMENTO DAS OPERAÇÕES JOE
+    // ==========================================
+    const wsOps = workbook.addWorksheet('Detalhamento Operações JOE', {
+      views: [{ showGridLines: true }],
+    });
+
+    const opsColumns = [
+      { id: 'command', label: 'COMANDO', width: 14 },
+      { id: 'subUnit', label: 'UNIDADE', width: 22 },
+      { id: 'justification', label: 'JUSTIFICATIVA DA CRIAÇÃO DA JOE', width: 40 },
+      { id: 'order', label: 'ORDEM DE SERVIÇO/OPERAÇÃO', width: 24 },
+      { id: 'eventName', label: 'NOME DO EVENTO', width: 30 },
+      { id: 'date', label: 'DATA', width: 14 },
+      { id: 'time', label: 'HORÁRIO', width: 18 },
+      { id: 'officers', label: 'EFETIVO EMPREGADO', width: 20 },
+      { id: 'unitValue', label: 'VALOR UNITÁRIO', width: 18 },
+      { id: 'totalValue', label: 'VALOR TOTAL', width: 20 },
+    ];
+
+    wsOps.columns = opsColumns.map((c) => ({ width: c.width }));
+
+    const rOpsHead = wsOps.addRow(opsColumns.map((c) => c.label));
+    rOpsHead.height = 26;
+    rOpsHead.eachCell((cell) => {
+      cell.font = { name: 'Arial', size: 9.5, bold: true, color: { argb: 'FF0F172A' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+      cell.border = thinBorder;
+    });
+
+    let opsTotalAmount = 0;
+    let opsTotalOfficers = 0;
+
+    sortedOps.forEach((op) => {
+      const valTot = Number(op.totalValue) || 0;
+      const offCount = Number(op.officersCount) || 0;
+      opsTotalAmount += valTot;
+      opsTotalOfficers += offCount;
+
+      let dateFormatted = op.serviceDate || '';
+      if (dateFormatted.includes('-')) {
+        const parts = dateFormatted.split('-');
+        if (parts.length === 3) dateFormatted = `${parts[2]}/${parts[1]}/${parts[0]}`;
+      }
+
+      const orderStr = op.orderNumber
+        ? `${op.orderType === 'ORDEM_DE_OPERACAO' ? 'OO' : 'OS'} ${op.orderNumber}`
+        : '';
+      const timeStr = op.startTime
+        ? op.endTime
+          ? `${op.startTime} às ${op.endTime}`
+          : op.startTime
+        : '20h às 02h';
+
+      const row = wsOps.addRow([
+        formatCommandDisplay(op.commandId),
+        op.subUnit || formatCommandDisplay(op.commandId),
+        op.justification || '',
+        orderStr,
+        op.eventName || '',
+        dateFormatted,
+        timeStr,
+        offCount,
+        Number(op.unitValue) || 350,
+        valTot,
+      ]);
+      row.height = 24;
+
+      row.eachCell((cell, colNumber) => {
+        cell.font = { name: 'Arial', size: 9, color: { argb: 'FF1E293B' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        cell.border = thinBorder;
+
+        if (colNumber === 8) {
+          cell.numFmt = '#,##0';
+          cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FF0F172A' } };
+        } else if (colNumber === 9 || colNumber === 10) {
+          cell.numFmt = '"R$"\\ #,##0.00';
+          if (colNumber === 10) {
+            cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FF0F172A' } };
+          }
+        }
+      });
+    });
+
+    // Total row in Detalhamento
+    const rOpsTot = wsOps.addRow([
+      'TOTAL GERAL',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      opsTotalOfficers,
+      '',
+      opsTotalAmount,
+    ]);
+    rOpsTot.height = 26;
+    rOpsTot.eachCell((cell, colNumber) => {
+      cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF0F172A' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+      cell.border = darkBorder;
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      if (colNumber === 8) cell.numFmt = '#,##0';
+      if (colNumber === 10) cell.numFmt = '"R$"\\ #,##0.00';
+    });
+
+    // ==========================================
+    // ABA 3: AUDITORIA E METADADOS DO BACKUP
+    // ==========================================
+    const wsAudit = workbook.addWorksheet('Auditoria e Metadados', {
+      views: [{ showGridLines: true }],
+    });
+
+    wsAudit.columns = [
+      { width: 4 },
+      { width: 32 },
+      { width: 55 },
+    ];
+
+    wsAudit.addRow([]);
+    const rAudTitle = wsAudit.addRow(['', 'REGISTRO OFICIAL DE BACKUP DO SISTEMA', '']);
+    wsAudit.mergeCells('B2:C2');
+    rAudTitle.getCell(2).font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FF002D5A' } };
+    rAudTitle.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
+    rAudTitle.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+    for (let c = 2; c <= 3; c++) rAudTitle.getCell(c).border = darkBorder;
+    rAudTitle.height = 28;
+
+    const auditData = [
+      ['Dia da Semana', dayOfWeek],
+      ['Data de Geração', `${day}/${month}/${year}`],
+      ['Horário de Salvamento', `${hours}:${minutes}:${pad(now.getSeconds())}`],
+      ['Timestamp do Arquivo', `${dateStamp}_${dayOfWeek}_${timeStamp}`],
+      ['Nome do Arquivo Oficial', fileName],
+      ['Pasta Oficial no Google Drive', 'https://drive.google.com/drive/folders/1rk7Urwzl1uyoJGNDPT23VTbFTzlNcQQP?usp=sharing'],
+      ['ID da Pasta Google Drive', '1rk7Urwzl1uyoJGNDPT23VTbFTzlNcQQP'],
+      ['E-mail Oficial Vinculado', 'secaooperacional.cpi.pmma@gmail.com'],
+      ['Usuário Responsável', currentUser ? `${currentUser.name} (${currentUser.role})` : 'Sistema Automático CPI'],
+      ['Portaria de Referência', ordinance?.number || 'Portaria nº 122/2026-GCG'],
+      ['Total de Operações Salvas', `${sortedOps.length} operações`],
+      ['Total de JOEs Empregadas', `${totQExec} JOEs`],
+      ['Valor Total Executado', formatCurrencyBRL(totExec)],
+      ['Teto Total Disponibilizado', formatCurrencyBRL(totDisp)],
+      ['Saldo Disponível Geral', formatCurrencyBRL(totDispVal)],
+    ];
+
+    auditData.forEach(([label, val]) => {
+      const r = wsAudit.addRow(['', label, val]);
+      r.height = 22;
+      const cLabel = r.getCell(2);
+      cLabel.font = { name: 'Arial', size: 9.5, bold: true, color: { argb: 'FF1E293B' } };
+      cLabel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+      cLabel.border = thinBorder;
+      cLabel.alignment = { vertical: 'middle' };
+
+      const cVal = r.getCell(3);
+      cVal.font = { name: 'Arial', size: 9.5, color: { argb: 'FF0F172A' } };
+      cVal.border = thinBorder;
+      cVal.alignment = { vertical: 'middle' };
+    });
+
+    const buffer = (await workbook.xlsx.writeBuffer()) as ArrayBuffer;
+
+    return {
+      buffer,
+      fileName,
+      dayOfWeek,
+      dateStamp,
+      timeStamp,
+      readableDate,
+      totalAmount: totExec,
+      totalJoes: totQExec,
+    };
+  },
 };
+
