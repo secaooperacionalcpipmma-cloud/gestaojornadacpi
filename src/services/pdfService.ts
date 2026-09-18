@@ -509,15 +509,18 @@ export const pdfService = {
   },
 
   // Official CPI Report Generator (Unified / Detailed / Summary)
+  // Defaults strictly to LANDSCAPE (A4: 297mm x 210mm) to guarantee all 7 columns of Quadro Resumo and 10 columns of Detailed Report fit 100% without truncation
   generateOfficialCPIReportPDF(
     operations: OperationLaunch[],
     ordinance: OrdinancePeriod | null,
     reportType: 'UNIFIED' | 'DETAILED' | 'SUMMARY_CPI' = 'UNIFIED',
-    customColumns?: { id: string; label: string; getter: (op: OperationLaunch) => any }[]
+    customColumns?: { id: string; label: string; getter: (op: OperationLaunch) => any }[],
+    orientation: 'landscape' | 'portrait' = 'landscape'
   ): void {
-    const isPortrait = reportType === 'SUMMARY_CPI';
-    const doc = new jsPDF(isPortrait ? 'portrait' : 'landscape', 'mm', 'a4');
-    const pageWidth = isPortrait ? 210 : 297;
+    const isLandscape = orientation === 'landscape';
+    const doc = new jsPDF(isLandscape ? 'landscape' : 'portrait', 'mm', 'a4');
+    const pageWidth = isLandscape ? 297 : 210;
+    const pageHeight = isLandscape ? 210 : 297;
 
     // 1. Sort operations strictly in official ascending order: CPI first, then CPAI-1 to CPAI-9
     const sortedOps = sortOperationsOfficial(operations);
@@ -711,13 +714,16 @@ export const pdfService = {
       });
 
       // If unified and page is nearly full, add new page
-      if (reportType === 'UNIFIED' && currentY > 110) {
-        doc.addPage('landscape');
+      const pageHeight = isLandscape ? 210 : 297;
+      if (reportType === 'UNIFIED' && currentY > (pageHeight - 95)) {
+        doc.addPage(isLandscape ? 'landscape' : 'portrait');
         currentY = 20;
       }
 
-      // Center the table on page (width 266mm, margins 15.5mm on 297mm page)
-      const marginX = 15.5;
+      // Center the table on page:
+      // Landscape: width 266mm, margins 15.5mm on 297mm page
+      // Portrait: width 196mm, margins 7mm on 210mm page
+      const marginX = isLandscape ? 15.5 : 7;
 
       let pTotDisp = 0;
       let pTotQJoe = 0;
@@ -752,12 +758,32 @@ export const pdfService = {
       const pTotDispVal = pTotDisp - pTotExec;
       const pTotQDisp = pTotQJoe - pTotQExec;
 
+      const columnStyles = isLandscape
+        ? {
+            0: { halign: 'center' as const, fontStyle: 'bold' as const, cellWidth: 26 },
+            1: { halign: 'center' as const, cellWidth: 46 },
+            2: { halign: 'center' as const, cellWidth: 26 },
+            3: { halign: 'center' as const, fontStyle: 'bold' as const, cellWidth: 44 },
+            4: { halign: 'center' as const, cellWidth: 36 },
+            5: { halign: 'center' as const, cellWidth: 44 },
+            6: { halign: 'center' as const, cellWidth: 44 },
+          }
+        : {
+            0: { halign: 'center' as const, fontStyle: 'bold' as const, cellWidth: 20 },
+            1: { halign: 'center' as const, cellWidth: 33 },
+            2: { halign: 'center' as const, cellWidth: 20 },
+            3: { halign: 'center' as const, fontStyle: 'bold' as const, cellWidth: 33 },
+            4: { halign: 'center' as const, cellWidth: 24 },
+            5: { halign: 'center' as const, cellWidth: 33 },
+            6: { halign: 'center' as const, cellWidth: 33 },
+          };
+
       autoTable(doc, {
         startY: currentY,
         margin: { left: marginX, right: marginX },
         head: [
-          [{ content: 'CPI', colSpan: 7, styles: { halign: 'center', fontSize: 11, fontStyle: 'bold', fillColor: [255, 255, 255], textColor: [15, 23, 42] } }],
-          [{ content: 'QUADRO RESUMO CPI', colSpan: 7, styles: { halign: 'center', fontSize: 9.5, fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [15, 23, 42] } }],
+          [{ content: 'CPI', colSpan: 7, styles: { halign: 'center', fontSize: isLandscape ? 11 : 9.5, fontStyle: 'bold', fillColor: [255, 255, 255], textColor: [15, 23, 42] } }],
+          [{ content: 'QUADRO RESUMO CPI', colSpan: 7, styles: { halign: 'center', fontSize: isLandscape ? 9.5 : 8.5, fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [15, 23, 42] } }],
           [
             'UNIDADE',
             'VALOR TOTAL DISPONIBILIZADO',
@@ -782,7 +808,7 @@ export const pdfService = {
         headStyles: {
           fillColor: [203, 213, 225],
           textColor: [15, 23, 42],
-          fontSize: 7.5,
+          fontSize: isLandscape ? 7.5 : 6.2,
           fontStyle: 'bold',
           halign: 'center',
           valign: 'middle',
@@ -790,27 +816,19 @@ export const pdfService = {
           lineWidth: 0.3,
         },
         bodyStyles: {
-          fontSize: 7.5,
+          fontSize: isLandscape ? 7.5 : 6.2,
           textColor: [15, 23, 42],
           halign: 'center',
           valign: 'middle',
           lineColor: [148, 163, 184],
           lineWidth: 0.2,
         },
-        columnStyles: {
-          0: { halign: 'center', fontStyle: 'bold', cellWidth: 26 },
-          1: { halign: 'center', cellWidth: 46 },
-          2: { halign: 'center', cellWidth: 26 },
-          3: { halign: 'center', fontStyle: 'bold', cellWidth: 44 },
-          4: { halign: 'center', cellWidth: 36 },
-          5: { halign: 'center', cellWidth: 44 },
-          6: { halign: 'center', cellWidth: 44 },
-        },
+        columnStyles,
         footStyles: {
           fillColor: [203, 213, 225],
           textColor: [15, 23, 42],
           fontStyle: 'bold',
-          fontSize: 8,
+          fontSize: isLandscape ? 8 : 6.8,
           halign: 'center',
           valign: 'middle',
           lineColor: [30, 41, 59],

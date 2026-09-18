@@ -406,7 +406,7 @@ export const INITIAL_BUDGETS: CommandBudget[] = [
 
 export const INITIAL_OFFICERS: PoliceOfficer[] = [];
 
-export const INITIAL_OPERATIONS: OperationLaunch[] = [];
+export { INITIAL_OPERATIONS } from './operationsData';
 
 export const INITIAL_AUDIT_LOGS: AuditLog[] = [];
 

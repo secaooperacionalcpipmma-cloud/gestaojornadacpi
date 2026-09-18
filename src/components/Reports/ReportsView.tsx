@@ -78,6 +78,9 @@ export function ReportsView({
   // Report Type Selection: 'UNIFIED' (Print 01 + Print 02) | 'DETAILED' | 'SUMMARY_CPI'
   const [reportType, setReportType] = useState<'UNIFIED' | 'DETAILED' | 'SUMMARY_CPI'>('UNIFIED');
 
+  // Page orientation for PDF: 'landscape' (default - full view of 7 cols) or 'portrait'
+  const [pdfOrientation, setPdfOrientation] = useState<'landscape' | 'portrait'>('landscape');
+
   // Copy to clipboard status and dropdown state
   const [isCopying, setIsCopying] = useState(false);
   const [copySuccessMessage, setCopySuccessMessage] = useState<string | null>(null);
@@ -516,7 +519,8 @@ export function ReportsView({
         filteredOperations,
         currentOrd,
         reportType,
-        activeCols
+        activeCols,
+        pdfOrientation
       );
     } catch (err) {
       console.error('Erro ao gerar PDF:', err);
@@ -527,7 +531,7 @@ export function ReportsView({
   };
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
+    <div className="space-y-6 max-w-7xl mx-auto">
       {/* Toast de Notificação de Cópia Formatada com Sucesso */}
       {copySuccessMessage && (
         <div className="fixed bottom-6 right-6 z-50 max-w-md bg-[#002D5A] text-white p-4 rounded-2xl shadow-2xl border-2 border-[#7EC2E8] flex items-start gap-3.5 animate-in fade-in slide-in-from-bottom-5">
@@ -641,7 +645,7 @@ export function ReportsView({
               className="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-rose-700 hover:bg-rose-800 text-white transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer active:scale-98 disabled:opacity-50"
             >
               <FileText className="w-4 h-4 text-rose-200" />
-              <span>{isExportingPDF ? 'Gerando PDF...' : 'Gerar PDF'}</span>
+              <span>{isExportingPDF ? 'Gerando PDF...' : pdfOrientation === 'landscape' ? 'Gerar PDF (Paisagem)' : 'Gerar PDF (Retrato)'}</span>
             </button>
 
             {/* Excel Export Button */}
@@ -715,6 +719,70 @@ export function ReportsView({
                 </div>
                 <div className="text-[11px] text-slate-500 mt-0.5">
                   Tabela compacta com totais de CPAI-1 a CPAI-9 e Total Geral CPI
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        {/* Escolha da Orientação da Página para PDF (Paisagem vs Retrato) */}
+        <div className="pt-2 border-t border-slate-100">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-2">
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+              Orientação da Página no PDF (Visualização Total)
+            </label>
+            <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 self-start sm:self-auto">
+              Modo Paisagem: 100% das 7 Colunas Visíveis sem Cortes
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              onClick={() => setPdfOrientation('landscape')}
+              className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                pdfOrientation === 'landscape'
+                  ? 'border-[#002D5A] bg-sky-50/80 ring-2 ring-[#002D5A]/10 shadow-xs'
+                  : 'border-slate-200 bg-white hover:bg-slate-50'
+              }`}
+            >
+              <div className={`w-8 h-5 rounded border-2 mt-0.5 shrink-0 flex items-center justify-center font-mono text-[9px] font-black transition-colors ${
+                pdfOrientation === 'landscape' ? 'border-[#002D5A] bg-[#002D5A] text-white' : 'border-slate-400 text-slate-500'
+              }`}>
+                ▬
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-xs sm:text-sm text-slate-900">
+                    Modo Paisagem (Horizontal • A4 297mm)
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-emerald-600 text-white">
+                    RECOMENDADO
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                  Exibe o relatório em largura estendida. Garante visualização de 100% das 7 colunas do Quadro Resumo CPI e da Planilha sem qualquer corte na lateral direita.
+                </div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setPdfOrientation('portrait')}
+              className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                pdfOrientation === 'portrait'
+                  ? 'border-[#002D5A] bg-sky-50/80 ring-2 ring-[#002D5A]/10 shadow-xs'
+                  : 'border-slate-200 bg-white hover:bg-slate-50'
+              }`}
+            >
+              <div className={`w-5 h-8 rounded border-2 mt-0.5 shrink-0 flex items-center justify-center font-mono text-[9px] font-black transition-colors ${
+                pdfOrientation === 'portrait' ? 'border-[#002D5A] bg-[#002D5A] text-white' : 'border-slate-400 text-slate-500'
+              }`}>
+                ▮
+              </div>
+              <div className="flex-1">
+                <div className="font-bold text-xs sm:text-sm text-slate-900">
+                  Modo Retrato (Vertical • A4 210mm)
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                  Formato vertical clássico com colunas e tipografia ajustadas proporcionalmente para caber na folha.
                 </div>
               </div>
             </button>
@@ -1153,7 +1221,7 @@ export function ReportsView({
             </div>
 
             {/* Centered official layout matching Print 02 */}
-            <div className="w-full max-w-5xl mx-auto border-2 border-slate-700 bg-white shadow-sm overflow-x-auto">
+            <div className="w-full border-2 border-slate-700 bg-white shadow-sm overflow-x-auto">
               <table className="w-full text-xs text-slate-900 border-collapse">
                 <thead>
                   {/* Row 1: CPI */}
@@ -1290,7 +1358,7 @@ export function ReportsView({
               className="flex-1 sm:flex-initial px-5 py-3 rounded-xl text-sm font-bold bg-rose-700 hover:bg-rose-800 text-white transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer active:scale-98 disabled:opacity-50"
             >
               <FileText className="w-4.5 h-4.5 text-rose-200" />
-              <span>{isExportingPDF ? 'Gerando Relatório PDF...' : 'Baixar Relatório em PDF (.pdf)'}</span>
+              <span>{isExportingPDF ? 'Gerando Relatório PDF...' : pdfOrientation === 'landscape' ? 'Baixar Relatório em PDF (Modo Paisagem)' : 'Baixar Relatório em PDF (Modo Retrato)'}</span>
             </button>
 
             {/* Excel Export Button */}

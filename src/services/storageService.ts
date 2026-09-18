@@ -126,6 +126,15 @@ class StorageService {
         if (result.budgets && result.budgets.length > 0) {
           this.set(STORAGE_KEYS.BUDGETS, result.budgets, true);
         }
+        if (result.operations && result.operations.length > 0) {
+          const currentOps = this.getOperations();
+          const cloudMap = new Map<string, OperationLaunch>();
+          result.operations.forEach((cop) => cloudMap.set(cop.id, cop));
+          currentOps.forEach((lop) => {
+            if (!cloudMap.has(lop.id)) cloudMap.set(lop.id, lop);
+          });
+          this.set(STORAGE_KEYS.OPERATIONS, Array.from(cloudMap.values()), true);
+        }
         if (result.users && result.users.length > 0) {
           const localUsers = this.getUsers();
           const mergedUsers = [...result.users];
@@ -1031,15 +1040,18 @@ class StorageService {
 
       const allLocalOps = Array.from(localMap.values());
 
-      // 2. Fetch all cloud operations from Supabase
+      // 2. Fetch all cloud operations from Supabase (authoritative cloud state)
       const cloudOps = await supabaseService.fetchOperations();
       let uploadedToCloud = 0;
 
       if (cloudOps !== null) {
         const cloudMap = new Map<string, OperationLaunch>();
+        // JAMAIS APAGAR DADOS DO BANCO DE DADOS EXISTENTE: All operations fetched from cloud database are 100% preserved
         for (const cop of cloudOps) {
-          if (!deletedIds.has(cop.id)) {
-            cloudMap.set(cop.id, cop);
+          cloudMap.set(cop.id, cop);
+          // If it was previously marked in deletedIds locally, unmark it because it legitimately exists in the database
+          if (deletedIds.has(cop.id)) {
+            this.removeDeletedOperationId(cop.id);
           }
         }
 
@@ -1139,18 +1151,17 @@ class StorageService {
         });
 
         cloudOps.forEach((cop) => {
-          if (!deletedIds.has(cop.id)) {
-            const existing = mergedMap.get(cop.id);
-            if (!existing) {
+          // JAMAIS APAGAR DADOS DO BANCO DE DADOS EXISTENTE: cloud operations are kept
+          const existing = mergedMap.get(cop.id);
+          if (!existing) {
+            mergedMap.set(cop.id, cop);
+            changed = true;
+          } else {
+            const cloudTs = new Date(cop.updatedAt || cop.createdAt || 0).getTime();
+            const localTs = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+            if (cloudTs > localTs) {
               mergedMap.set(cop.id, cop);
               changed = true;
-            } else {
-              const cloudTs = new Date(cop.updatedAt || cop.createdAt || 0).getTime();
-              const localTs = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
-              if (cloudTs > localTs) {
-                mergedMap.set(cop.id, cop);
-                changed = true;
-              }
             }
           }
         });
