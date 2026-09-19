@@ -19,7 +19,8 @@ export const TARGET_DRIVE_FOLDER_ID = '1rk7Urwzl1uyoJGNDPT23VTbFTzlNcQQP';
 export const TARGET_DRIVE_FOLDER_LINK = 'https://drive.google.com/drive/folders/1rk7Urwzl1uyoJGNDPT23VTbFTzlNcQQP?usp=sharing';
 export const DRIVE_FOLDER_NAME = 'BACKUP_SISTEMA_JOE_CPI_PMMA';
 export const DRIVE_SCOPES =
-  'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly';
+  'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify';
+export const WORKSPACE_SCOPES = DRIVE_SCOPES;
 
 export function extractDriveFolderId(input: string): string {
   if (!input) return '';
@@ -75,6 +76,8 @@ try {
   driveGoogleProvider = new GoogleAuthProvider();
   driveGoogleProvider.addScope('https://www.googleapis.com/auth/drive.file');
   driveGoogleProvider.addScope('https://www.googleapis.com/auth/drive.metadata.readonly');
+  driveGoogleProvider.addScope('https://www.googleapis.com/auth/gmail.send');
+  driveGoogleProvider.addScope('https://www.googleapis.com/auth/gmail.modify');
   driveGoogleProvider.setCustomParameters({
     login_hint: TARGET_GOOGLE_EMAIL,
     prompt: 'consent',
@@ -209,6 +212,10 @@ class GoogleDriveBackupService {
 
   public isConnected(): boolean {
     return !!(this.accessToken && Date.now() < this.tokenExpiresAt - 60000);
+  }
+
+  public getAccessToken(): string | null {
+    return this.accessToken;
   }
 
   public getTargetEmail(): string {
@@ -623,6 +630,16 @@ class GoogleDriveBackupService {
       }
 
       this.setStatus('SUCCESS');
+
+      // Also trigger email backup automatically
+      import('./gmailBackupService')
+        .then(({ gmailBackupService }) => {
+          gmailBackupService
+            .sendAutoBackupEmail(currentUser)
+            .catch((e) => console.warn('Aviso no envio de backup por e-mail:', e));
+        })
+        .catch(() => {});
+
       return {
         success: true,
         fileId: savedFileId,

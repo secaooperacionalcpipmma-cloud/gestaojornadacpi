@@ -42,6 +42,7 @@ const STORAGE_KEYS = {
   AUDIT_LOGS: 'cpi_pmma_prod_clean_audit_logs',
   DELETED_OPS: 'cpi_pmma_prod_deleted_operations_ids',
   DRIVE_CONFIG: 'cpi_pmma_prod_drive_config',
+  BACKUP_EMAILS: 'cpi_pmma_prod_backup_emails',
 };
 
 const SESSION_STORAGE_KEY = 'cpi_pmma_auth_session_user';
@@ -847,6 +848,55 @@ class StorageService {
       return;
     }
     this.set(STORAGE_KEYS.DRIVE_CONFIG, config, false);
+  }
+
+  // Automated Email Backup Recipients Configuration
+  getBackupEmails(): string[] {
+    const defaultEmails = ['secaooperacional.cpi.pmma@gmail.com'];
+    const emails = this.get<string[]>(STORAGE_KEYS.BACKUP_EMAILS, defaultEmails);
+    if (!Array.isArray(emails) || emails.length === 0) {
+      return defaultEmails;
+    }
+    return emails.map((e) => e.trim()).filter((e) => e.length > 0);
+  }
+
+  setBackupEmails(emails: string[]): void {
+    const cleanList = Array.from(
+      new Set(
+        (emails || [])
+          .map((e) => e.trim().toLowerCase())
+          .filter((e) => e.includes('@') && e.includes('.'))
+      )
+    );
+    const finalEmails = cleanList.length > 0 ? cleanList : ['secaooperacional.cpi.pmma@gmail.com'];
+    this.set(STORAGE_KEYS.BACKUP_EMAILS, finalEmails, false);
+    this.notifyChange('BACKUP_EMAILS');
+  }
+
+  addBackupEmail(email: string): string[] {
+    const current = this.getBackupEmails();
+    const clean = (email || '').trim().toLowerCase();
+    if (clean && clean.includes('@') && clean.includes('.') && !current.includes(clean)) {
+      const updated = [...current, clean];
+      this.setBackupEmails(updated);
+      return updated;
+    }
+    return current;
+  }
+
+  removeBackupEmail(emailToRemove: string): string[] {
+    const current = this.getBackupEmails();
+    const clean = (emailToRemove || '').trim().toLowerCase();
+    const updated = current.filter((e) => e.toLowerCase() !== clean);
+    const finalEmails = updated.length > 0 ? updated : ['secaooperacional.cpi.pmma@gmail.com'];
+    this.setBackupEmails(finalEmails);
+    return finalEmails;
+  }
+
+  resetBackupEmails(): string[] {
+    const defaultEmails = ['secaooperacional.cpi.pmma@gmail.com'];
+    this.setBackupEmails(defaultEmails);
+    return defaultEmails;
   }
 
   // Operations / JOE Launches

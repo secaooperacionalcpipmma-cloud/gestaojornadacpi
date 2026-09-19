@@ -28,6 +28,12 @@ import {
   Save,
   Link2,
   Check,
+  Mail,
+  Send,
+  Plus,
+  Tag,
+  AtSign,
+  BookmarkCheck,
 } from 'lucide-react';
 import {
   googleDriveBackupService,
@@ -35,6 +41,11 @@ import {
   TARGET_DRIVE_FOLDER_ID,
   extractDriveFolderId,
 } from '../../services/googleDriveBackupService';
+import {
+  gmailBackupService,
+  GMAIL_BACKUP_LABEL_NAME,
+  DEFAULT_BACKUP_EMAIL,
+} from '../../services/gmailBackupService';
 import {
   User,
   SystemBackupPayload,
@@ -57,7 +68,9 @@ export function BackupManagerModal({
   currentUser,
   onDataRestored,
 }: BackupManagerModalProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'DRIVE' | 'SUPABASE' | 'IMPORT_FILE' | 'DRIVE_HISTORY'>('DRIVE');
+  const [activeSubTab, setActiveSubTab] = useState<
+    'DRIVE' | 'GMAIL' | 'SUPABASE' | 'IMPORT_FILE' | 'DRIVE_HISTORY'
+  >('DRIVE');
   const [driveStatus, setDriveStatus] = useState<DriveSyncStatus>(googleDriveBackupService.getStatus());
   const [supabaseStatus, setSupabaseStatus] = useState<SupabaseSyncStatus>(supabaseService.getStatus());
   const [isSyncingSupabase, setIsSyncingSupabase] = useState<boolean>(false);
@@ -70,6 +83,21 @@ export function BackupManagerModal({
   const [driveBackups, setDriveBackups] = useState<DriveBackupFileMeta[]>([]);
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(
     null
+  );
+
+  // Gmail Automated Backup state
+  const [backupEmails, setBackupEmails] = useState<string[]>(storageService.getBackupEmails());
+  const [newEmailInput, setNewEmailInput] = useState<string>('');
+  const [editingEmailIndex, setEditingEmailIndex] = useState<number | null>(null);
+  const [editingEmailValue, setEditingEmailValue] = useState<string>('');
+  const [isTestingEmail, setIsTestingEmail] = useState<boolean>(false);
+  const [emailTestResult, setEmailTestResult] = useState<{
+    success: boolean;
+    message: string;
+    timestamp?: string;
+  } | null>(null);
+  const [lastEmailTime, setLastEmailTime] = useState<string | null>(
+    gmailBackupService.getLastBackupTime()
   );
 
   // File import state
@@ -360,6 +388,84 @@ export function BackupManagerModal({
     }
   };
 
+  // Gmail Management & Test Handlers
+  const handleAddEmail = () => {
+    const trimmed = newEmailInput.trim().toLowerCase();
+    if (!trimmed) return;
+    if (!trimmed.includes('@') || !trimmed.includes('.')) {
+      showFeedback('error', 'Por favor insira um formato de e-mail válido.');
+      return;
+    }
+    if (backupEmails.some((e) => e.toLowerCase() === trimmed)) {
+      showFeedback('info', 'Este endereço de e-mail já está cadastrado.');
+      return;
+    }
+    const updated = storageService.addBackupEmail(trimmed);
+    setBackupEmails(updated);
+    setNewEmailInput('');
+    showFeedback('success', `E-mail ${trimmed} cadastrado com sucesso para receber cópias de backup!`);
+  };
+
+  const handleStartEditEmail = (index: number) => {
+    setEditingEmailIndex(index);
+    setEditingEmailValue(backupEmails[index]);
+  };
+
+  const handleSaveEditEmail = (index: number) => {
+    const trimmed = editingEmailValue.trim().toLowerCase();
+    if (!trimmed || !trimmed.includes('@') || !trimmed.includes('.')) {
+      showFeedback('error', 'Por favor insira um formato de e-mail válido.');
+      return;
+    }
+    const updated = [...backupEmails];
+    updated[index] = trimmed;
+    storageService.setBackupEmails(updated);
+    setBackupEmails(storageService.getBackupEmails());
+    setEditingEmailIndex(null);
+    setEditingEmailValue('');
+    showFeedback('success', `E-mail atualizado para: ${trimmed}`);
+  };
+
+  const handleRemoveEmail = (emailToRemove: string) => {
+    const updated = storageService.removeBackupEmail(emailToRemove);
+    setBackupEmails(updated);
+    showFeedback('info', `Destinatário ${emailToRemove} removido da lista.`);
+  };
+
+  const handleResetEmails = () => {
+    const reset = storageService.resetBackupEmails();
+    setBackupEmails(reset);
+    showFeedback('info', `Lista de e-mails restaurada para o padrão oficial: ${DEFAULT_BACKUP_EMAIL}`);
+  };
+
+  const handleTestEmail = async () => {
+    setIsTestingEmail(true);
+    setEmailTestResult(null);
+    try {
+      showFeedback('info', 'Disparando teste de envio para os e-mails cadastrados via Gmail API...');
+      const res = await gmailBackupService.sendTestBackupEmail(currentUser);
+      setEmailTestResult({
+        success: res.success,
+        message: res.message,
+        timestamp: res.timestamp,
+      });
+      if (res.timestamp) {
+        setLastEmailTime(res.timestamp);
+      }
+      if (res.success) {
+        showFeedback('success', res.message);
+      } else {
+        showFeedback('error', res.message);
+      }
+    } catch (err: any) {
+      const msg = err.message || 'Erro inesperado ao disparar teste por e-mail.';
+      setEmailTestResult({ success: false, message: msg });
+      showFeedback('error', msg);
+    } finally {
+      setIsTestingEmail(false);
+    }
+  };
+
   const fetchDriveHistory = async () => {
     setIsLoadingHistory(true);
     try {
@@ -534,6 +640,21 @@ export function BackupManagerModal({
           >
             <Cloud className="w-4 h-4" />
             <span>Google Drive Automático</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab('GMAIL')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+              activeSubTab === 'GMAIL'
+                ? 'bg-[#002D5A] text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <Mail className="w-4 h-4 text-emerald-600" />
+            <span>E-mail Automático (BACKUP JOE)</span>
+            <span className="text-[10px] bg-emerald-500/20 text-emerald-800 px-1.5 py-0.5 rounded-full font-extrabold">
+              {backupEmails.length}
+            </span>
           </button>
 
           <button
@@ -936,6 +1057,60 @@ export function BackupManagerModal({
               )}
             </div>
 
+            {/* Automated Gmail Backup Banner in Drive Tab */}
+            <div className="bg-gradient-to-r from-emerald-950 via-[#002D5A] to-sky-950 text-white rounded-2xl p-4 shadow-xs space-y-2.5 border border-emerald-500/30">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-400/20 text-emerald-300 border border-emerald-400/30 uppercase tracking-wider">
+                      <Tag className="w-3 h-3" />
+                      Marcador: {GMAIL_BACKUP_LABEL_NAME}
+                    </span>
+                    <span className="text-xs font-bold text-sky-200 flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-emerald-400" />
+                      Envio Automático por E-mail (Gmail) Ativo
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-200">
+                    Destinatários cadastrados ({backupEmails.length}):{' '}
+                    <strong className="text-white font-mono font-medium">
+                      {backupEmails.join(', ')}
+                    </strong>
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleTestEmail}
+                    disabled={isTestingEmail}
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                  >
+                    {isTestingEmail ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Enviando Teste...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Testar Envio por E-mail</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveSubTab('GMAIL')}
+                    className="px-3 py-2 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-sky-300" />
+                    <span>Editar / Adicionar E-mails</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* Quick Actions for Excel & Drive */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {/* Immediate Drive Excel Upload */}
@@ -1137,6 +1312,282 @@ export function BackupManagerModal({
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* SUBTAB GMAIL: ENVIO AUTOMÁTICO POR E-MAIL & MARCADOR BACKUP JOE */}
+        {/* ========================================================================= */}
+        {activeSubTab === 'GMAIL' && (
+          <div className="space-y-4 animate-in fade-in">
+            {/* Header / Status Banner */}
+            <div className="bg-gradient-to-r from-[#002D5A] via-sky-950 to-emerald-950 rounded-2xl p-5 text-white shadow-md border border-emerald-500/20">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 tracking-wide uppercase">
+                      <Tag className="w-3.5 h-3.5" />
+                      Marcador: {GMAIL_BACKUP_LABEL_NAME}
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/20 text-sky-200 border border-sky-400/30">
+                      <Mail className="w-3 h-3" />
+                      {backupEmails.length} {backupEmails.length === 1 ? 'destinatário ativo' : 'destinatários ativos'}
+                    </span>
+                  </div>
+                  <h3 className="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-2">
+                    Disparo Automático de Backup por E-mail (Gmail API)
+                  </h3>
+                  <p className="text-xs text-sky-100 max-w-2xl leading-relaxed">
+                    Toda vez que uma alteração é efetuada no sistema (lançamento, edição de cotas, nova portaria ou exclusão), uma cópia completa em planilha Excel (.xlsx) é enviada automaticamente para todos os e-mails cadastrados e catalogada sob o marcador <strong>{GMAIL_BACKUP_LABEL_NAME}</strong> no Gmail.
+                  </p>
+                </div>
+
+                <div className="flex sm:flex-col items-stretch sm:items-end gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleTestEmail}
+                    disabled={isTestingEmail}
+                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                  >
+                    {isTestingEmail ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Disparando Teste...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        <span>Testar Envio por E-mail</span>
+                      </>
+                    )}
+                  </button>
+                  {lastEmailTime && (
+                    <span className="text-[10px] text-emerald-200 font-medium">
+                      Último envio: {new Date(lastEmailTime).toLocaleString('pt-BR')}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Test result card if available */}
+            {emailTestResult && (
+              <div
+                className={`p-4 rounded-xl border text-xs flex items-start gap-3 animate-in fade-in ${
+                  emailTestResult.success
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                    : 'bg-rose-50 border-rose-300 text-rose-950'
+                }`}
+              >
+                {emailTestResult.success ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                )}
+                <div className="flex-1 space-y-1">
+                  <div className="font-bold">
+                    {emailTestResult.success ? 'Envio de Teste Concluído com Sucesso!' : 'Falha no Envio de Teste'}
+                  </div>
+                  <div className="leading-relaxed">{emailTestResult.message}</div>
+                  {emailTestResult.timestamp && (
+                    <div className="text-[11px] text-slate-500">
+                      Disparado em: {new Date(emailTestResult.timestamp).toLocaleString('pt-BR')}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEmailTestResult(null)}
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Email Management Card */}
+            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-[#002D5A] flex items-center gap-1.5">
+                    <AtSign className="w-4 h-4 text-sky-600" />
+                    Gerenciar E-mails Destinatários ({backupEmails.length})
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Você pode cadastrar mais de um e-mail ou editar qualquer endereço existente nesta lista.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleResetEmails}
+                  className="text-[11px] text-slate-600 hover:text-[#002D5A] font-semibold underline flex items-center gap-1 self-start sm:self-auto cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Restaurar Padrão Oficial ({DEFAULT_BACKUP_EMAIL})
+                </button>
+              </div>
+
+              {/* Add new email input */}
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Cadastrar Novo E-mail para Receber Cópias:</span>
+                </label>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <input
+                    type="email"
+                    value={newEmailInput}
+                    onChange={(e) => setNewEmailInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddEmail();
+                      }
+                    }}
+                    placeholder="Digite o e-mail (ex: secaooperacional.cpi.pmma@gmail.com ou outro destinatário)"
+                    className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 bg-white text-slate-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddEmail}
+                    className="px-4 py-2 rounded-lg text-xs font-bold bg-[#002D5A] hover:bg-[#001F3F] text-white transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-95 shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Cadastrar E-mail</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Email List */}
+              <div className="space-y-2">
+                <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                  Destinatários Ativos:
+                </div>
+
+                {backupEmails.length === 0 ? (
+                  <div className="p-4 rounded-xl border border-dashed border-slate-300 text-center text-xs text-slate-500">
+                    Nenhum e-mail cadastrado. Cadastre pelo menos um endereço para receber as cópias de backup.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2">
+                    {backupEmails.map((email, idx) => {
+                      const isEditing = editingEmailIndex === idx;
+                      const isDefault = email.toLowerCase() === DEFAULT_BACKUP_EMAIL.toLowerCase();
+
+                      return (
+                        <div
+                          key={idx}
+                          className={`p-3 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
+                            isEditing
+                              ? 'bg-sky-50/70 border-sky-300 shadow-2xs'
+                              : 'bg-white border-slate-200 hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-800 flex items-center justify-center shrink-0 font-bold text-xs">
+                              {idx + 1}
+                            </div>
+
+                            {isEditing ? (
+                              <div className="flex items-center gap-2 flex-1">
+                                <input
+                                  type="email"
+                                  value={editingEmailValue}
+                                  onChange={(e) => setEditingEmailValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      handleSaveEditEmail(idx);
+                                    } else if (e.key === 'Escape') {
+                                      setEditingEmailIndex(null);
+                                    }
+                                  }}
+                                  autoFocus
+                                  className="flex-1 px-2.5 py-1.5 rounded-lg border border-sky-400 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-sky-500 bg-white text-slate-900"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveEditEmail(idx)}
+                                  className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-2xs"
+                                  title="Salvar alteração"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingEmailIndex(null)}
+                                  className="p-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 cursor-pointer"
+                                  title="Cancelar"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                <span className="text-xs font-bold text-slate-900 font-mono truncate">
+                                  {email}
+                                </span>
+                                {isDefault && (
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                    Principal Oficial CPI/PMMA
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {!isEditing && (
+                            <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditEmail(idx)}
+                                className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-50 hover:bg-sky-50 text-slate-700 hover:text-sky-800 border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+                              >
+                                <Edit3 className="w-3 h-3 text-sky-600" />
+                                <span>Editar</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveEmail(email)}
+                                className="px-2 py-1 rounded-lg text-xs font-semibold bg-slate-50 hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+                                title="Remover e-mail"
+                              >
+                                <Trash2 className="w-3 h-3 text-rose-600" />
+                                <span>Excluir</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Marcador BACKUP JOE Details */}
+            <div className="bg-sky-50/70 rounded-2xl p-4 border border-sky-200 space-y-3">
+              <div className="flex items-center gap-2 text-xs font-bold text-[#002D5A]">
+                <BookmarkCheck className="w-4 h-4 text-emerald-600" />
+                <span>Como funciona a Marcação no Gmail ({GMAIL_BACKUP_LABEL_NAME}):</span>
+              </div>
+              <ul className="text-xs text-slate-700 space-y-1.5 pl-5 list-disc">
+                <li>
+                  <strong>Criação Automática do Marcador:</strong> O sistema detecta ou cria automaticamente o marcador <code>{GMAIL_BACKUP_LABEL_NAME}</code> na conta Google vinculada.
+                </li>
+                <li>
+                  <strong>Organização Instantânea:</strong> Cada e-mail disparado já recebe o marcador <code>{GMAIL_BACKUP_LABEL_NAME}</code>, permitindo que você filtre e localize todos os relatórios imediatamente digitando <code>label:{GMAIL_BACKUP_LABEL_NAME}</code> no campo de busca do Gmail.
+                </li>
+                <li>
+                  <strong>Planilha Excel em Anexo (.xlsx):</strong> Cada mensagem acompanha o arquivo Excel oficial gerado no momento exato da alteração, contendo o Quadro Resumo do CPI, todos os lançamentos das Unidades (CPA/I-1 a CPA/I-9), tetos e auditoria.
+                </li>
+                <li>
+                  <strong>Disparo Paralelo:</strong> O envio por e-mail ocorre em conjunto com o salvamento na pasta do Google Drive, garantindo redundância total de segurança.
+                </li>
+              </ul>
             </div>
           </div>
         )}
