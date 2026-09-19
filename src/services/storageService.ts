@@ -41,6 +41,7 @@ const STORAGE_KEYS = {
   IRREGULARITIES: 'cpi_pmma_prod_clean_irregularities',
   AUDIT_LOGS: 'cpi_pmma_prod_clean_audit_logs',
   DELETED_OPS: 'cpi_pmma_prod_deleted_operations_ids',
+  DRIVE_CONFIG: 'cpi_pmma_prod_drive_config',
 };
 
 const SESSION_STORAGE_KEY = 'cpi_pmma_auth_session_user';
@@ -832,6 +833,20 @@ class StorageService {
     if (existing.includes(id)) {
       this.set(STORAGE_KEYS.DELETED_OPS, existing.filter((i) => i !== id), true);
     }
+  }
+
+  // Google Drive Folder Configuration
+  getDriveConfig(): { folderLink: string; folderId: string } | null {
+    return this.get<{ folderLink: string; folderId: string } | null>(STORAGE_KEYS.DRIVE_CONFIG, null);
+  }
+
+  setDriveConfig(config: { folderLink: string; folderId: string } | null): void {
+    if (!config) {
+      localStorage.removeItem(STORAGE_KEYS.DRIVE_CONFIG);
+      this.notifyChange('DRIVE_CONFIG');
+      return;
+    }
+    this.set(STORAGE_KEYS.DRIVE_CONFIG, config, false);
   }
 
   // Operations / JOE Launches

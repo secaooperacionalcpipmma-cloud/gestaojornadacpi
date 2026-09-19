@@ -18,7 +18,49 @@ export const TARGET_GOOGLE_EMAIL = 'secaooperacional.cpi.pmma@gmail.com';
 export const TARGET_DRIVE_FOLDER_ID = '1rk7Urwzl1uyoJGNDPT23VTbFTzlNcQQP';
 export const TARGET_DRIVE_FOLDER_LINK = 'https://drive.google.com/drive/folders/1rk7Urwzl1uyoJGNDPT23VTbFTzlNcQQP?usp=sharing';
 export const DRIVE_FOLDER_NAME = 'BACKUP_SISTEMA_JOE_CPI_PMMA';
-export const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
+export const DRIVE_SCOPES =
+  'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly';
+
+export function extractDriveFolderId(input: string): string {
+  if (!input) return '';
+  const trimmed = input.trim();
+  // match /folders/([a-zA-Z0-9_-]+)
+  const folderMatch = trimmed.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+  if (folderMatch && folderMatch[1]) {
+    return folderMatch[1].split('?')[0];
+  }
+  // match id=([a-zA-Z0-9_-]+)
+  const idMatch = trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (idMatch && idMatch[1]) {
+    return idMatch[1].split('&')[0];
+  }
+  // match /d/([a-zA-Z0-9_-]+)
+  const dMatch = trimmed.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (dMatch && dMatch[1]) {
+    return dMatch[1].split('?')[0];
+  }
+  // If it's just the ID directly (alphanumeric, dashes, underscores) without slashes
+  if (/^[a-zA-Z0-9_-]{15,}$/.test(trimmed)) {
+    return trimmed;
+  }
+  // Query strings fallback
+  if (trimmed.includes('drive.google.com')) {
+    const parts = trimmed.split('/');
+    const last = parts[parts.length - 1]?.split('?')[0];
+    if (last && last.length > 10) return last;
+  }
+  return trimmed;
+}
+
+export function buildDriveFolderLink(folderIdOrUrl: string): string {
+  const trimmed = (folderIdOrUrl || '').trim();
+  if (!trimmed) return TARGET_DRIVE_FOLDER_LINK;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+  const folderId = extractDriveFolderId(trimmed);
+  return `https://drive.google.com/drive/folders/${folderId || trimmed}?usp=sharing`;
+}
 
 const GOOGLE_CLIENT_ID =
   (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID ||
@@ -31,7 +73,8 @@ try {
   const firebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
   firebaseAuth = getAuth(firebaseApp);
   driveGoogleProvider = new GoogleAuthProvider();
-  driveGoogleProvider.addScope(DRIVE_SCOPES);
+  driveGoogleProvider.addScope('https://www.googleapis.com/auth/drive.file');
+  driveGoogleProvider.addScope('https://www.googleapis.com/auth/drive.metadata.readonly');
   driveGoogleProvider.setCustomParameters({
     login_hint: TARGET_GOOGLE_EMAIL,
     prompt: 'consent',
@@ -44,6 +87,7 @@ const STORAGE_KEYS = {
   DRIVE_ACCESS_TOKEN: 'cpi_pmma_gdrive_access_token',
   DRIVE_TOKEN_EXPIRES_AT: 'cpi_pmma_gdrive_token_expires_at',
   DRIVE_FOLDER_ID: 'cpi_pmma_gdrive_folder_id',
+  DRIVE_FOLDER_LINK: 'cpi_pmma_gdrive_folder_link',
   LAST_BACKUP_TIME: 'cpi_pmma_gdrive_last_backup_time',
   LAST_BACKUP_NAME: 'cpi_pmma_gdrive_last_backup_name',
   LAST_BACKUP_DAY: 'cpi_pmma_gdrive_last_backup_day',
@@ -78,6 +122,7 @@ class GoogleDriveBackupService {
   private accessToken: string | null = null;
   private tokenExpiresAt: number = 0;
   private folderId: string = TARGET_DRIVE_FOLDER_ID;
+  private folderLink: string = TARGET_DRIVE_FOLDER_LINK;
   private syncStatus: DriveSyncStatus = 'IDLE';
   private lastBackupTime: string | null = null;
   private lastBackupName: string | null = null;
@@ -95,7 +140,19 @@ class GoogleDriveBackupService {
       this.accessToken = localStorage.getItem(STORAGE_KEYS.DRIVE_ACCESS_TOKEN);
       const expires = localStorage.getItem(STORAGE_KEYS.DRIVE_TOKEN_EXPIRES_AT);
       this.tokenExpiresAt = expires ? parseInt(expires, 10) : 0;
-      this.folderId = localStorage.getItem(STORAGE_KEYS.DRIVE_FOLDER_ID) || TARGET_DRIVE_FOLDER_ID;
+
+      // 1. Check storageService database configuration
+      const driveConfig = storageService.getDriveConfig();
+      if (driveConfig?.folderId && driveConfig?.folderLink) {
+        this.folderId = driveConfig.folderId;
+        this.folderLink = driveConfig.folderLink;
+      } else {
+        const savedId = localStorage.getItem(STORAGE_KEYS.DRIVE_FOLDER_ID);
+        const savedLink = localStorage.getItem(STORAGE_KEYS.DRIVE_FOLDER_LINK);
+        this.folderId = savedId || TARGET_DRIVE_FOLDER_ID;
+        this.folderLink = savedLink || (savedId ? buildDriveFolderLink(savedId) : TARGET_DRIVE_FOLDER_LINK);
+      }
+
       this.lastBackupTime = localStorage.getItem(STORAGE_KEYS.LAST_BACKUP_TIME);
       this.lastBackupName = localStorage.getItem(STORAGE_KEYS.LAST_BACKUP_NAME);
       this.lastBackupDay = localStorage.getItem(STORAGE_KEYS.LAST_BACKUP_DAY);
@@ -159,11 +216,74 @@ class GoogleDriveBackupService {
   }
 
   public getTargetFolderLink(): string {
-    return TARGET_DRIVE_FOLDER_LINK;
+    return this.folderLink || TARGET_DRIVE_FOLDER_LINK;
   }
 
   public getTargetFolderId(): string {
     return this.folderId || TARGET_DRIVE_FOLDER_ID;
+  }
+
+  public isCustomFolder(): boolean {
+    const currentId = this.getTargetFolderId();
+    const currentLink = this.getTargetFolderLink();
+    return currentId !== TARGET_DRIVE_FOLDER_ID || currentLink !== TARGET_DRIVE_FOLDER_LINK;
+  }
+
+  public setTargetFolder(
+    linkOrId: string,
+    currentUser?: User
+  ): { folderId: string; folderLink: string } {
+    const raw = (linkOrId || '').trim();
+    if (!raw) {
+      return this.resetTargetFolder(currentUser);
+    }
+
+    const folderId = extractDriveFolderId(raw);
+    const folderLink = buildDriveFolderLink(raw.startsWith('http') ? raw : folderId);
+
+    this.folderId = folderId;
+    this.folderLink = folderLink;
+
+    localStorage.setItem(STORAGE_KEYS.DRIVE_FOLDER_ID, folderId);
+    localStorage.setItem(STORAGE_KEYS.DRIVE_FOLDER_LINK, folderLink);
+    storageService.setDriveConfig({ folderLink, folderId });
+
+    if (currentUser) {
+      storageService.logAudit({
+        userName: currentUser.name,
+        userRole: currentUser.role,
+        action: 'SISTEMA_CONFIG_ALTERADA',
+        module: 'SISTEMA',
+        recordId: folderId.slice(0, 12),
+        description: `Link da Pasta Oficial de Backup no Google Drive atualizado para: ${folderLink} (ID: ${folderId})`,
+        ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
+      });
+    }
+
+    return { folderId, folderLink };
+  }
+
+  public resetTargetFolder(currentUser?: User): { folderId: string; folderLink: string } {
+    this.folderId = TARGET_DRIVE_FOLDER_ID;
+    this.folderLink = TARGET_DRIVE_FOLDER_LINK;
+
+    localStorage.removeItem(STORAGE_KEYS.DRIVE_FOLDER_ID);
+    localStorage.removeItem(STORAGE_KEYS.DRIVE_FOLDER_LINK);
+    storageService.setDriveConfig(null);
+
+    if (currentUser) {
+      storageService.logAudit({
+        userName: currentUser.name,
+        userRole: currentUser.role,
+        action: 'SISTEMA_CONFIG_ALTERADA',
+        module: 'SISTEMA',
+        recordId: TARGET_DRIVE_FOLDER_ID.slice(0, 12),
+        description: `Link da Pasta de Backup no Google Drive restaurado para o padrão original: ${TARGET_DRIVE_FOLDER_LINK}`,
+        ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
+      });
+    }
+
+    return { folderId: this.folderId, folderLink: this.folderLink };
   }
 
   public getCurrentOrigin(): string {
@@ -311,10 +431,12 @@ class GoogleDriveBackupService {
 
   // Ensure Target Folder is accessible, or create fallback
   private async resolveTargetFolder(token: string): Promise<string> {
-    // 1. First priority: Check if specified TARGET_DRIVE_FOLDER_ID exists and is accessible
+    const currentTargetId = this.getTargetFolderId();
+
+    // 1. First priority: Check if specified target folder exists and is accessible
     try {
       const checkRes = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${TARGET_DRIVE_FOLDER_ID}?fields=id,name,trashed,mimeType`,
+        `https://www.googleapis.com/drive/v3/files/${currentTargetId}?fields=id,name,trashed,mimeType`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -323,7 +445,7 @@ class GoogleDriveBackupService {
       if (checkRes.ok) {
         const folderData = await checkRes.json();
         if (!folderData.trashed) {
-          this.folderId = TARGET_DRIVE_FOLDER_ID;
+          this.folderId = currentTargetId;
           localStorage.setItem(STORAGE_KEYS.DRIVE_FOLDER_ID, this.folderId);
           return this.folderId;
         }
@@ -356,8 +478,8 @@ class GoogleDriveBackupService {
       // continue
     }
 
-    // 3. Fallback: try target folder ID directly
-    return TARGET_DRIVE_FOLDER_ID;
+    // 3. Fallback: try current target folder ID directly
+    return currentTargetId;
   }
 
   // Upload Complete Excel Backup (.xlsx) to Google Drive Folder
@@ -507,7 +629,7 @@ class GoogleDriveBackupService {
         fileName,
         dayOfWeek,
         readableDate,
-        webViewLink: fileData.webViewLink || `${TARGET_DRIVE_FOLDER_LINK}`,
+        webViewLink: fileData.webViewLink || this.getTargetFolderLink(),
         message: `Relatório Completo de Backup salvo no Google Drive com sucesso (${fileName})!`,
       };
     } catch (err: any) {
@@ -851,6 +973,115 @@ class GoogleDriveBackupService {
         message: err.message || 'Erro ao processar restauração do banco de dados.',
       };
     }
+  }
+
+  // Load Google Picker API script dynamically
+  public async loadPickerApi(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if ((window as any).google?.picker) {
+        resolve();
+        return;
+      }
+
+      const checkAndLoad = () => {
+        if ((window as any).gapi?.load) {
+          (window as any).gapi.load('picker', {
+            callback: () => resolve(),
+            onerror: () => reject(new Error('Falha ao carregar a biblioteca Google Picker.')),
+          });
+          return true;
+        }
+        return false;
+      };
+
+      if (checkAndLoad()) return;
+
+      let script = document.querySelector('script[src="https://apis.google.com/js/api.js"]') as HTMLScriptElement;
+      if (!script) {
+        script = document.createElement('script');
+        script.src = 'https://apis.google.com/js/api.js';
+        script.async = true;
+        script.defer = true;
+        document.head.appendChild(script);
+      }
+
+      let count = 0;
+      const timer = setInterval(() => {
+        count++;
+        if (checkAndLoad()) {
+          clearInterval(timer);
+        } else if (count > 30) {
+          clearInterval(timer);
+          reject(new Error('Tempo limite ao carregar biblioteca Google Picker.'));
+        }
+      }, 200);
+    });
+  }
+
+  // Open official Google Picker widget
+  public async openGooglePicker(
+    onPicked: (doc: {
+      id: string;
+      name: string;
+      mimeType?: string;
+      url?: string;
+      sizeBytes?: number;
+    }) => void,
+    onCancel?: () => void
+  ): Promise<void> {
+    let token = this.accessToken;
+    if (!this.isConnected()) {
+      token = await this.requestAuthorization(true);
+    }
+    if (!token) {
+      throw new Error('Token de acesso do Google Drive não disponível para o Google Picker.');
+    }
+
+    await this.loadPickerApi();
+
+    const googleObj = (window as any).google;
+    if (!googleObj?.picker) {
+      throw new Error('Google Picker não está disponível no navegador.');
+    }
+
+    // Official origin calculation pattern
+    const pickerOrigin =
+      window.location.ancestorOrigins && window.location.ancestorOrigins.length > 0
+        ? window.location.ancestorOrigins[window.location.ancestorOrigins.length - 1]
+        : window.location.origin;
+
+    const docsView = new googleObj.picker.DocsView(googleObj.picker.ViewId.DOCS)
+      .setIncludeFolders(true)
+      .setSelectFolderEnabled(false);
+
+    const spreadsheetsView = new googleObj.picker.DocsView(googleObj.picker.ViewId.SPREADSHEETS);
+
+    const builder = new googleObj.picker.PickerBuilder()
+      .addView(docsView)
+      .addView(spreadsheetsView)
+      .addView(new googleObj.picker.DocsUploadView())
+      .setOAuthToken(token)
+      .setOrigin(pickerOrigin)
+      .setTitle('Google Drive - Selecionar Arquivo ou Relatório JOE')
+      .setCallback((data: any) => {
+        if (data.action === googleObj.picker.Action.PICKED) {
+          const doc = data.docs?.[0];
+          if (doc) {
+            onPicked({
+              id: doc.id,
+              name: doc.name,
+              mimeType: doc.mimeType,
+              url: doc.url,
+              sizeBytes: doc.sizeBytes,
+            });
+          }
+        } else if (data.action === googleObj.picker.Action.CANCEL) {
+          if (onCancel) onCancel();
+        }
+      });
+
+    const picker = builder.build();
+    picker.setVisible(true);
   }
 }
 

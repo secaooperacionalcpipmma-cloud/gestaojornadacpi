@@ -18,6 +18,7 @@ import {
   Sparkles,
   CloudUpload,
   ExternalLink,
+  FolderSearch,
 } from 'lucide-react';
 import {
   googleDriveBackupService,
@@ -555,7 +556,7 @@ export function ReportsView({
           success: true,
           message: `Relatório mais atualizado salvo com sucesso na pasta oficial do Google Drive!`,
           fileName: res.fileName,
-          webViewLink: res.webViewLink || TARGET_DRIVE_FOLDER_LINK,
+          webViewLink: res.webViewLink || googleDriveBackupService.getTargetFolderLink(),
           dayOfWeek: res.dayOfWeek,
         });
       } else {
@@ -571,6 +572,35 @@ export function ReportsView({
       });
     } finally {
       setIsSavingToDrive(false);
+    }
+  };
+
+  // ABRIR GOOGLE PICKER PARA SELECIONAR ARQUIVO NO DRIVE
+  const [isOpeningPicker, setIsOpeningPicker] = useState(false);
+
+  const handleOpenGooglePicker = async () => {
+    try {
+      setIsOpeningPicker(true);
+      await googleDriveBackupService.openGooglePicker(
+        (doc) => {
+          setDriveSaveResult({
+            success: true,
+            message: `Arquivo selecionado no Google Drive com sucesso via Google Picker!`,
+            fileName: doc.name,
+            webViewLink: doc.url || `https://drive.google.com/file/d/${doc.id}/view`,
+          });
+        },
+        () => {
+          // Cancelled
+        }
+      );
+    } catch (err: any) {
+      setDriveSaveResult({
+        success: false,
+        message: err.message || 'Não foi possível abrir o Google Picker.',
+      });
+    } finally {
+      setIsOpeningPicker(false);
     }
   };
 
@@ -790,6 +820,17 @@ export function ReportsView({
             >
               <CloudUpload className={`w-4 h-4 ${isSavingToDrive ? 'animate-spin' : 'text-emerald-200'}`} />
               <span>{isSavingToDrive ? 'Salvando no Drive...' : 'Salvar no Google Drive (Teste)'}</span>
+            </button>
+
+            {/* Google Picker Drive Explorer Button */}
+            <button
+              onClick={handleOpenGooglePicker}
+              disabled={isOpeningPicker}
+              title="Abrir o Google Picker oficial para selecionar planilhas ou arquivos no Google Drive"
+              className="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-700 hover:bg-indigo-800 text-white transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer active:scale-98 disabled:opacity-50"
+            >
+              <FolderSearch className={`w-4 h-4 ${isOpeningPicker ? 'animate-spin' : 'text-indigo-200'}`} />
+              <span>{isOpeningPicker ? 'Abrindo Picker...' : 'Selecionar no Drive (Picker)'}</span>
             </button>
           </div>
         </div>

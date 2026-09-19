@@ -23,11 +23,17 @@ import {
   Trash2,
   FileSpreadsheet,
   ExternalLink,
+  FolderSearch,
+  Edit3,
+  Save,
+  Link2,
+  Check,
 } from 'lucide-react';
 import {
   googleDriveBackupService,
   TARGET_DRIVE_FOLDER_LINK,
   TARGET_DRIVE_FOLDER_ID,
+  extractDriveFolderId,
 } from '../../services/googleDriveBackupService';
 import {
   User,
@@ -81,6 +87,31 @@ export function BackupManagerModal({
   const [manualToken, setManualToken] = useState<string>('');
   const [copiedOrigin, setCopiedOrigin] = useState<boolean>(false);
 
+  // Google Picker state
+  const [isOpeningPicker, setIsOpeningPicker] = useState<boolean>(false);
+  const [pickedDriveFile, setPickedDriveFile] = useState<{
+    id: string;
+    name: string;
+    mimeType?: string;
+    url?: string;
+    sizeBytes?: number;
+  } | null>(null);
+
+  // Google Drive folder customization state
+  const [isEditingFolderLink, setIsEditingFolderLink] = useState<boolean>(false);
+  const [folderLinkInput, setFolderLinkInput] = useState<string>(
+    googleDriveBackupService.getTargetFolderLink()
+  );
+  const [activeFolderLink, setActiveFolderLink] = useState<string>(
+    googleDriveBackupService.getTargetFolderLink()
+  );
+  const [activeFolderId, setActiveFolderId] = useState<string>(
+    googleDriveBackupService.getTargetFolderId()
+  );
+  const [isCustomFolder, setIsCustomFolder] = useState<boolean>(
+    googleDriveBackupService.isCustomFolder()
+  );
+
   useEffect(() => {
     if (!isOpen) return;
 
@@ -94,6 +125,15 @@ export function BackupManagerModal({
     });
 
     setIsAutoBackup(googleDriveBackupService.isAutoBackup());
+
+    // Sync current folder link settings
+    const currentLink = googleDriveBackupService.getTargetFolderLink();
+    const currentId = googleDriveBackupService.getTargetFolderId();
+    setActiveFolderLink(currentLink);
+    setActiveFolderId(currentId);
+    setFolderLinkInput(currentLink);
+    setIsCustomFolder(googleDriveBackupService.isCustomFolder());
+    setIsEditingFolderLink(false);
 
     if (googleDriveBackupService.isConnected()) {
       fetchDriveHistory();
@@ -207,6 +247,73 @@ export function BackupManagerModal({
     googleDriveBackupService.setManualAccessToken(manualToken.trim());
     showFeedback('success', 'Token OAuth aplicado com sucesso! Tentando sincronizar histórico...');
     fetchDriveHistory();
+  };
+
+  const handleSaveDriveFolderLink = () => {
+    const raw = folderLinkInput.trim();
+    if (!raw) {
+      showFeedback('error', 'Por favor, insira o link ou o ID da pasta do Google Drive.');
+      return;
+    }
+    const { folderId, folderLink } = googleDriveBackupService.setTargetFolder(raw, currentUser);
+    setActiveFolderId(folderId);
+    setActiveFolderLink(folderLink);
+    setFolderLinkInput(folderLink);
+    setIsCustomFolder(googleDriveBackupService.isCustomFolder());
+    setIsEditingFolderLink(false);
+    showFeedback(
+      'success',
+      `Novo link da pasta do Google Drive salvo no sistema com sucesso! ID detectado: ${folderId}`
+    );
+    if (googleDriveBackupService.isConnected()) {
+      fetchDriveHistory();
+    }
+  };
+
+  const handleResetDriveFolderLink = () => {
+    const { folderId, folderLink } = googleDriveBackupService.resetTargetFolder(currentUser);
+    setActiveFolderId(folderId);
+    setActiveFolderLink(folderLink);
+    setFolderLinkInput(folderLink);
+    setIsCustomFolder(false);
+    setIsEditingFolderLink(false);
+    showFeedback('success', 'Link da pasta restaurado para o padrão original do sistema.');
+    if (googleDriveBackupService.isConnected()) {
+      fetchDriveHistory();
+    }
+  };
+
+  const handleOpenPicker = async () => {
+    try {
+      setIsOpeningPicker(true);
+      await googleDriveBackupService.openGooglePicker(
+        async (doc) => {
+          setPickedDriveFile(doc);
+          showFeedback('success', `Arquivo selecionado pelo Google Picker: ${doc.name}`);
+
+          if (doc.name.endsWith('.json') || doc.mimeType?.includes('json')) {
+            try {
+              const res = await googleDriveBackupService.downloadDriveBackupContent(doc.id);
+              if (res.success && res.payload) {
+                setParsedFileBackup(res.payload);
+                setImportFileName(`[Google Drive] ${doc.name}`);
+                setActiveSubTab('IMPORT_FILE');
+                showFeedback('success', `Arquivo .json lido com sucesso via Google Picker! Pronto para restauração.`);
+              }
+            } catch (err: any) {
+              showFeedback('error', `Erro ao processar conteúdo do arquivo: ${err.message}`);
+            }
+          }
+        },
+        () => {
+          // Cancelled
+        }
+      );
+    } catch (err: any) {
+      showFeedback('error', err.message || 'Erro ao abrir o Google Picker.');
+    } finally {
+      setIsOpeningPicker(false);
+    }
   };
 
   const handleManualBackupToDrive = async () => {
@@ -610,30 +717,116 @@ export function BackupManagerModal({
                     </span>
                   </div>
 
-                  <div className="text-xs text-slate-700 space-y-0.5">
+                  <div className="text-xs text-slate-700 space-y-1.5">
                     <p className="flex items-center gap-1.5">
                       <span className="font-semibold text-slate-900">Conta:</span>
                       <span className="font-mono text-[#002D5A] font-bold">{googleDriveBackupService.getTargetEmail()}</span>
                     </p>
-                    <p className="flex flex-wrap items-center gap-1.5">
-                      <span className="font-semibold text-slate-900">Link da Pasta:</span>
-                      <a
-                        href={TARGET_DRIVE_FOLDER_LINK}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="font-mono text-xs text-sky-700 hover:text-sky-900 underline flex items-center gap-1 font-semibold"
-                        title="Abrir pasta no Google Drive em nova aba"
-                      >
-                        <span className="truncate max-w-xs sm:max-w-md">{TARGET_DRIVE_FOLDER_LINK}</span>
-                        <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                      </a>
-                    </p>
+
+                    {!isEditingFolderLink ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-slate-900">Link da Pasta:</span>
+                        <a
+                          href={activeFolderLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-mono text-xs text-sky-700 hover:text-sky-900 underline flex items-center gap-1 font-semibold"
+                          title="Abrir pasta no Google Drive em nova aba"
+                        >
+                          <span className="truncate max-w-xs sm:max-w-md">{activeFolderLink}</span>
+                          <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                        </a>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFolderLinkInput(activeFolderLink);
+                            setIsEditingFolderLink(true);
+                          }}
+                          className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-white hover:bg-sky-50 text-sky-800 border border-sky-300 shadow-2xs transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Trocar o link da pasta de backup e salvar no sistema"
+                        >
+                          <Edit3 className="w-3 h-3 text-sky-600" />
+                          <span>Trocar Link</span>
+                        </button>
+
+                        {isCustomFolder && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300">
+                            Personalizado
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="mt-2 p-3 bg-white rounded-xl border border-sky-300 shadow-sm space-y-2 animate-in fade-in">
+                        <div className="flex flex-wrap items-center justify-between gap-1">
+                          <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                            <Link2 className="w-3.5 h-3.5 text-sky-600" />
+                            <span>Trocar Link da Pasta no Google Drive:</span>
+                          </label>
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            ID Detectado:{' '}
+                            <span className="font-bold text-[#002D5A]">
+                              {extractDriveFolderId(folderLinkInput) || 'Aguardando link...'}
+                            </span>
+                          </span>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                          <input
+                            type="text"
+                            value={folderLinkInput}
+                            onChange={(e) => setFolderLinkInput(e.target.value)}
+                            placeholder="Cole o link completo da pasta (ex: https://drive.google.com/drive/folders/...) ou o ID"
+                            className="flex-1 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 bg-slate-50 focus:bg-white text-slate-800"
+                          />
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={handleSaveDriveFolderLink}
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors flex items-center gap-1 cursor-pointer shadow-xs active:scale-95"
+                            >
+                              <Save className="w-3.5 h-3.5" />
+                              <span>Salvar no Sistema</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFolderLinkInput(activeFolderLink);
+                                setIsEditingFolderLink(false);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 transition-colors flex items-center gap-1 cursor-pointer"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                              <span>Cancelar</span>
+                            </button>
+
+                            {isCustomFolder && (
+                              <button
+                                type="button"
+                                onClick={handleResetDriveFolderLink}
+                                className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+                                title="Voltar para a pasta original do sistema"
+                              >
+                                <RotateCcw className="w-3 h-3 text-slate-500" />
+                                <span>Restaurar Padrão</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <p className="text-[10px] text-slate-500">
+                          Ao salvar, todos os backups automáticos em Excel (.xlsx) e cópias de segurança serão enviados diretamente para esta pasta no Drive.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                   <a
-                    href={TARGET_DRIVE_FOLDER_LINK}
+                    href={activeFolderLink}
                     target="_blank"
                     rel="noreferrer"
                     className="px-3 py-2 rounded-xl text-xs font-bold bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 shadow-2xs transition-all flex items-center justify-center gap-1.5 shrink-0"
@@ -744,16 +937,16 @@ export function BackupManagerModal({
             </div>
 
             {/* Quick Actions for Excel & Drive */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {/* Immediate Drive Excel Upload */}
               <div className="bg-white rounded-xl p-4 border border-sky-200 hover:border-sky-400 transition-all flex flex-col justify-between space-y-3 shadow-2xs">
                 <div>
                   <div className="flex items-center gap-2 text-xs font-bold text-[#002D5A]">
                     <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                    <span>Salvar no Google Drive Agora</span>
+                    <span>Salvar no Drive Agora</span>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                    Gera o <strong>Relatório Completo em Excel (.xlsx)</strong> com Data e Dia da Semana e envia diretamente para a pasta indicada no Drive.
+                    Gera o <strong>Relatório Completo em Excel (.xlsx)</strong> e envia diretamente para a pasta indicada no Drive.
                   </p>
                 </div>
 
@@ -765,12 +958,44 @@ export function BackupManagerModal({
                   {isUploading ? (
                     <>
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Gravando no Google Drive...</span>
+                      <span>Gravando no Drive...</span>
                     </>
                   ) : (
                     <>
                       <CloudUpload className="w-3.5 h-3.5 text-sky-300" />
-                      <span>Subir Excel para o Drive</span>
+                      <span>Subir Excel p/ Drive</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Google Picker Drive File Explorer */}
+              <div className="bg-white rounded-xl p-4 border border-indigo-200 hover:border-indigo-400 transition-all flex flex-col justify-between space-y-3 shadow-2xs">
+                <div>
+                  <div className="flex items-center gap-2 text-xs font-bold text-indigo-950">
+                    <FolderSearch className="w-4 h-4 text-indigo-600" />
+                    <span>Google Picker (Drive)</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                    Abra o seletor nativo oficial do Google para explorar planilhas e arquivos diretamente no Google Drive.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleOpenPicker}
+                  disabled={isOpeningPicker}
+                  className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-950 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                >
+                  {isOpeningPicker ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                      <span>Abrindo Picker...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FolderSearch className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Abrir Google Picker</span>
                     </>
                   )}
                 </button>
@@ -781,10 +1006,10 @@ export function BackupManagerModal({
                 <div>
                   <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
                     <Download className="w-4 h-4 text-emerald-600" />
-                    <span>Baixar Relatório Excel (.xlsx)</span>
+                    <span>Baixar Planilha (.xlsx)</span>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                    Baixa o Relatório Completo de Backup diretamente em planilha Excel com Quadro Resumo CPI e detalhamento de operações.
+                    Baixa o Relatório de Backup diretamente em planilha Excel com Quadro Resumo CPI e detalhamento de operações.
                   </p>
                 </div>
 
@@ -793,7 +1018,7 @@ export function BackupManagerModal({
                   className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Baixar Excel Oficial (.xlsx)</span>
+                  <span>Baixar Excel Oficial</span>
                 </button>
               </div>
 
@@ -802,10 +1027,10 @@ export function BackupManagerModal({
                 <div>
                   <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
                     <Database className="w-4 h-4 text-slate-600" />
-                    <span>Baixar Cópia Bruta (.JSON)</span>
+                    <span>Baixar Backup (.JSON)</span>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                    Exporta o snapshot completo dos dados do sistema em formato JSON para fins de restauração instantânea do banco.
+                    Exporta o snapshot completo dos dados em JSON para fins de restauração instantânea do banco.
                   </p>
                 </div>
 
@@ -818,6 +1043,61 @@ export function BackupManagerModal({
                 </button>
               </div>
             </div>
+
+            {/* Picked Drive File Banner */}
+            {pickedDriveFile && (
+              <div className="bg-gradient-to-r from-indigo-50 to-sky-50 rounded-xl p-4 border border-indigo-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 animate-pulse"></span>
+                    <span className="text-[11px] font-bold text-indigo-900 uppercase tracking-wider">
+                      Arquivo Selecionado via Google Picker:
+                    </span>
+                  </div>
+                  <div className="text-xs font-bold text-slate-900 flex items-center gap-2">
+                    <FolderSearch className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span className="truncate max-w-md">{pickedDriveFile.name}</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-mono">
+                    ID: {pickedDriveFile.id}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {pickedDriveFile.url && (
+                    <a
+                      href={pickedDriveFile.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-indigo-200 text-indigo-900 hover:bg-indigo-50 flex items-center gap-1 shadow-2xs"
+                    >
+                      <span>Abrir no Drive</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleDownloadDriveFile({
+                        id: pickedDriveFile.id,
+                        name: pickedDriveFile.name,
+                      } as any)
+                    }
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs flex items-center gap-1 cursor-pointer"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Baixar Arquivo</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPickedDriveFile(null)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Current Database Summary Card */}
             <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-2.5">
@@ -866,6 +1146,45 @@ export function BackupManagerModal({
         {/* ========================================================================= */}
         {activeSubTab === 'IMPORT_FILE' && (
           <div className="space-y-4">
+            {/* Google Picker Direct Drive Import */}
+            <div className="bg-gradient-to-r from-indigo-50/80 via-sky-50/60 to-white rounded-2xl p-4 border border-indigo-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                  <FolderSearch className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                    <span>Selecionar Backup Direto do Google Drive</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800">
+                      Google Picker
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 mt-0.5">
+                    Abra o seletor oficial do Google para escolher um arquivo de backup (.json) armazenado no seu Drive.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleOpenPicker}
+                disabled={isOpeningPicker}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 shrink-0"
+              >
+                {isOpeningPicker ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    <span>Abrindo Google Picker...</span>
+                  </>
+                ) : (
+                  <>
+                    <FolderSearch className="w-4 h-4 text-white" />
+                    <span>Abrir Google Picker</span>
+                  </>
+                )}
+              </button>
+            </div>
+
             {/* File Upload Dropzone */}
             <div
               onClick={() => fileInputRef.current?.click()}
@@ -1018,18 +1337,29 @@ export function BackupManagerModal({
         {/* ========================================================================= */}
         {activeSubTab === 'DRIVE_HISTORY' && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-bold text-slate-700">
                 Backups encontrados no Google Drive ({googleDriveBackupService.getTargetEmail()}):
               </span>
-              <button
-                onClick={fetchDriveHistory}
-                disabled={isLoadingHistory}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold text-[#002D5A] hover:bg-slate-100 transition-colors flex items-center gap-1.5 cursor-pointer"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingHistory ? 'animate-spin' : ''}`} />
-                <span>Atualizar</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleOpenPicker}
+                  disabled={isOpeningPicker}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <FolderSearch className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Google Picker</span>
+                </button>
+                <button
+                  onClick={fetchDriveHistory}
+                  disabled={isLoadingHistory}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-[#002D5A] hover:bg-slate-100 transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingHistory ? 'animate-spin' : ''}`} />
+                  <span>Atualizar</span>
+                </button>
+              </div>
             </div>
 
             {isLoadingHistory ? (

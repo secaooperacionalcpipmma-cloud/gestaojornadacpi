@@ -194,7 +194,7 @@ export interface AuditLog {
   timestamp: string; // e.g. '24/08/2026 14:58' or ISO
   userName: string; // 'admin' | 'Cb Osaias'
   userRole?: string;
-  action: 'login' | 'logout' | 'criar' | 'editar' | 'excluir' | 'salvar_tetos' | 'CRIACAO' | 'EDICAO' | 'EXCLUSAO' | 'APROVACAO' | 'REJEICAO' | 'DEVOLUCAO' | 'AJUSTE_COTA' | 'CONSOLIDACAO' | 'ENCAMINHAMENTO_PAGADORIA' | 'REGISTRO_IRREGULARIDADE' | 'AUDITORIA_MULTI_UNIDADES' | 'BACKUP_CRIADO' | 'BACKUP_RESTAURADO';
+  action: 'login' | 'logout' | 'criar' | 'editar' | 'excluir' | 'salvar_tetos' | 'CRIACAO' | 'EDICAO' | 'EXCLUSAO' | 'APROVACAO' | 'REJEICAO' | 'DEVOLUCAO' | 'AJUSTE_COTA' | 'CONSOLIDACAO' | 'ENCAMINHAMENTO_PAGADORIA' | 'REGISTRO_IRREGULARIDADE' | 'AUDITORIA_MULTI_UNIDADES' | 'BACKUP_CRIADO' | 'BACKUP_RESTAURADO' | 'SISTEMA_CONFIG_ALTERADA';
   module?: 'OPERACOES' | 'ORCAMENTO' | 'PORTARIAS' | 'CONSOLIDACAO' | 'EFETIVO' | 'IRREGULARIDADES' | 'SISTEMA' | 'BACKUP';
   recordId: string; // e.g. 'usuarios #1' | 'lancamentos #2'
   previousValue?: string;
