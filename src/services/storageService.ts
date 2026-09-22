@@ -1060,14 +1060,27 @@ class StorageService {
         let modified = false;
         let ordId = op.ordinanceId;
 
-        // Check if ordinanceId is missing, empty, or a generic placeholder
-        if (!ordId || ordId === 'portaria-vigente' || ordId === 'default' || !knownOrdinanceIds.has(ordId)) {
-          // If the ordinanceId matches portaria 122 under an alias, map to active ordinance
-          ordId = activeOrd ? activeOrd.id : 'ord-122-2026';
+        // Any past operation with serviceDate up to 2026-09-21, or SEI 2026.190110.35458, is definitively from Portaria 122/2026
+        const isPast122Period =
+          (op.serviceDate && op.serviceDate <= '2026-09-21') ||
+          op.seiProcessNumber === '2026.190110.35458' ||
+          (op.orderNumber && op.orderNumber.includes('35458')) ||
+          (op.launchNumber && op.launchNumber.includes('122'));
+
+        if (isPast122Period) {
+          if (ordId !== 'ord-122-2026') {
+            ordId = 'ord-122-2026';
+            modified = true;
+          }
+        } else if (!ordId || ordId === 'portaria-vigente' || ordId === 'default' || !knownOrdinanceIds.has(ordId)) {
+          // New/unassigned operations belong to active ordinance
+          ordId = activeOrd ? activeOrd.id : 'ord-127-2026';
           modified = true;
-        } else if (activeOrd && (ordId.includes('122') && activeOrd.id.includes('122')) && ordId !== activeOrd.id) {
-          // Unify any alias variations of 122/2026 to the active ordinance ID
-          ordId = activeOrd.id;
+        } else if (ordId.includes('122') && ordId !== 'ord-122-2026') {
+          ordId = 'ord-122-2026';
+          modified = true;
+        } else if (ordId.includes('127') && ordId !== 'ord-127-2026') {
+          ordId = 'ord-127-2026';
           modified = true;
         }
 
@@ -1345,7 +1358,7 @@ class StorageService {
     // If this was previously marked deleted, unmark it
     this.removeDeletedOperationId(opId);
 
-    const assignedOrdinanceId = operation.ordinanceId || activeOrd?.id || 'ord-122-2026';
+    const assignedOrdinanceId = operation.ordinanceId || activeOrd?.id || 'ord-127-2026';
     const assignedOfficersCount = Math.max(1, Number(operation.officersCount) || 1);
     const assignedUnitValue = Number(operation.unitValue) > 0 ? Number(operation.unitValue) : (activeOrd?.unitValueJoe || 350);
     const assignedTotalValue = assignedOfficersCount * assignedUnitValue;

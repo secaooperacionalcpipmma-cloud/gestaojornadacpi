@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   FileSpreadsheet,
   Download,
@@ -81,6 +81,11 @@ export function ReportsView({
 }: ReportsViewProps) {
   // Selected ordinance filter (defaults to active in-effect ordinance)
   const [selectedOrdinanceId, setSelectedOrdinanceId] = useState<string>(activeOrdinance.id);
+
+  // Sync selected ordinance filter whenever active ordinance changes in top bar
+  useEffect(() => {
+    setSelectedOrdinanceId(activeOrdinance.id);
+  }, [activeOrdinance.id]);
 
   // Date range filters
   const [startDate, setStartDate] = useState<string>('');

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Filter,
   RotateCcw,
@@ -24,6 +24,7 @@ import {
   normalizeCommandName,
   sortCommandsByOfficialOrder,
 } from '../../utils/commandUtils';
+import { getOrdinanceStatusInfo } from '../../utils/ordinancePeriodUtils';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 
 interface OperationsListViewProps {
@@ -56,11 +57,18 @@ export function OperationsListView({
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [ordinanceScope, setOrdinanceScope] = useState<'CURRENT' | 'ALL'>('ALL');
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+
+  // Status info for active ordinance
+  const statusInfo = getOrdinanceStatusInfo(ordinance);
 
   // Multi-selection state for bulk actions
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  // Clear selection whenever the user switches ordinance period in header
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [ordinance.id]);
 
   // Modal confirmation state
   const [deleteModalState, setDeleteModalState] = useState<{
@@ -96,18 +104,12 @@ export function OperationsListView({
   );
   const availableUnits = activeCommand ? activeCommand.subunits : [];
 
-  // Filter logic
+  // Filter logic: strictly filtered by the active/selected ordinance from the top bar
   const filteredOperations = useMemo(() => {
     return operations
       .filter((op) => {
-        if (ordinanceScope === 'CURRENT') {
-          return (
-            op.ordinanceId === ordinance.id ||
-            op.ordinanceId === 'portaria-vigente' ||
-            !op.ordinanceId
-          );
-        }
-        return true;
+        // Enforce strict matching to the selected ordinance
+        return op.ordinanceId === ordinance.id;
       })
       .filter((op) => {
         if (selectedCpa) {
@@ -132,7 +134,7 @@ export function OperationsListView({
         }
         return true;
       });
-  }, [operations, ordinanceScope, ordinance.id, selectedCpa, selectedUnit, startDate, endDate, searchQuery]);
+  }, [operations, ordinance.id, selectedCpa, selectedUnit, startDate, endDate, searchQuery]);
 
   const handleClearFilters = () => {
     setSelectedCpa('');
@@ -140,7 +142,6 @@ export function OperationsListView({
     setStartDate('');
     setEndDate('');
     setSearchQuery('');
-    setOrdinanceScope('ALL');
   };
 
   const handleManualRefresh = async () => {
@@ -277,30 +278,18 @@ export function OperationsListView({
             <span>Filtros de Pesquisa e Segmentação</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-500">Portaria:</span>
-            <div className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50 text-xs">
-              <button
-                type="button"
-                onClick={() => setOrdinanceScope('ALL')}
-                className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${
-                  ordinanceScope === 'ALL'
-                    ? 'bg-[#002D5A] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Todas ({operations.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setOrdinanceScope('CURRENT')}
-                className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${
-                  ordinanceScope === 'CURRENT'
-                    ? 'bg-[#002D5A] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                {ordinance.number}
-              </button>
+            <span className="text-xs font-semibold text-slate-500">Portaria Selecionada no Topo:</span>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#002D5A] text-white text-xs font-bold shadow-xs">
+              <span>{ordinance.name || ordinance.number}</span>
+              {statusInfo.isCurrentInEffect ? (
+                <span className="text-[10px] bg-sky-400/20 text-sky-200 border border-sky-400/30 px-1.5 py-0.5 rounded font-bold">
+                  ⭐ Em Vigor
+                </span>
+              ) : (
+                <span className="text-[10px] bg-amber-400/20 text-amber-200 border border-amber-400/30 px-1.5 py-0.5 rounded font-bold">
+                  Histórica
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -459,8 +448,8 @@ export function OperationsListView({
             <span className="font-bold text-slate-800 text-xs sm:text-sm">
               Lançamentos Registrados ({filteredOperations.length})
             </span>
-            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-sky-50 text-[#002D5A] border border-[#7EC2E8]">
-              {ordinance.number}
+            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-sky-50 text-[#002D5A] border border-[#7EC2E8]">
+              {ordinance.name || ordinance.number}
             </span>
           </div>
 
@@ -534,24 +523,38 @@ export function OperationsListView({
             <tbody className="divide-y divide-slate-100">
               {filteredOperations.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400">
-                    <FileSpreadsheet className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                    <p className="text-sm font-medium text-slate-600 mb-1">
-                      Nenhum lançamento de JOE encontrado para os filtros selecionados.
-                    </p>
-                    <p className="text-xs text-slate-400 mb-4">
-                      Você pode registrar uma nova solicitação de jornada agora mesmo.
-                    </p>
-                    {onNavigateToCreate && (
-                      <button
-                        type="button"
-                        onClick={onNavigateToCreate}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#002D5A] hover:bg-[#001F3F] text-white text-xs font-bold shadow-md cursor-pointer transition-all active:scale-95"
-                      >
-                        <Plus className="w-4 h-4 text-[#7EC2E8]" />
-                        <span>Lançar Solicitação de JOE</span>
-                      </button>
-                    )}
+                  <td colSpan={11} className="py-14 px-4 text-center">
+                    <div className="max-w-md mx-auto flex flex-col items-center">
+                      <div className="w-14 h-14 rounded-2xl bg-sky-50 border border-sky-200/80 flex items-center justify-center text-[#002D5A] mb-3 shadow-xs">
+                        <FileSpreadsheet className="w-7 h-7 text-[#002D5A]" />
+                      </div>
+                      <h4 className="text-base font-bold text-slate-800 mb-1">
+                        Nenhum lançamento registrado na {ordinance.name || ordinance.number}
+                      </h4>
+                      <p className="text-xs text-slate-500 leading-relaxed mb-5">
+                        {statusInfo.isCurrentInEffect ? (
+                          <>
+                            Esta tela exibe estritamente os lançamentos da <strong>portaria selecionada no menu superior</strong>. Como a <strong>{ordinance.name || ordinance.number}</strong> é a nova portaria em vigor, ainda não há jornadas registradas nela.
+                            <br />
+                            Caso deseje consultar os <strong>33 lançamentos da portaria anterior</strong>, basta selecioná-la no seletor do cabeçalho.
+                          </>
+                        ) : (
+                          <>
+                            Não foram encontrados lançamentos para a portaria <strong>{ordinance.name || ordinance.number}</strong> com os filtros aplicados. Para alternar entre períodos, utilize o seletor no topo da tela.
+                          </>
+                        )}
+                      </p>
+                      {onNavigateToCreate && (
+                        <button
+                          type="button"
+                          onClick={onNavigateToCreate}
+                          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#002D5A] hover:bg-[#001F3F] text-white text-xs font-bold shadow-md cursor-pointer transition-all active:scale-95"
+                        >
+                          <Plus className="w-4 h-4 text-[#7EC2E8]" />
+                          <span>Lançar Nova JOE nesta Portaria</span>
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -669,7 +672,7 @@ export function OperationsListView({
       {/* Counter subtext */}
       <div className="text-xs sm:text-sm text-slate-500 px-1 font-medium flex items-center justify-between">
         <span>
-          Exibindo <strong>{filteredOperations.length}</strong> lançamento(s) ativo(s) nesta portaria.
+          Exibindo <strong>{filteredOperations.length}</strong> lançamento(s) da <strong>{ordinance.name || ordinance.number}</strong>.
         </span>
         <span>Referência Contábil: PMMA / CPI</span>
       </div>

@@ -121,7 +121,7 @@ export function CreateJoeView({
       launchNumber: operationToEdit?.launchNumber || ordemServico || `${Math.floor(10000 + Math.random() * 90000)}`,
       commandId: normCpa,
       subUnit: unidade,
-      ordinanceId: ordinance.id || 'ord-122-2026',
+      ordinanceId: ordinance.id || 'ord-127-2026',
       seiProcessNumber: processoSei.trim() || '2026.190110.00000',
       orderNumber: ordemServico.trim() || `OS nº ${Math.floor(100 + Math.random() * 900)}/2026-${normCpa}`,
       eventName: nomeEvento.trim(),
