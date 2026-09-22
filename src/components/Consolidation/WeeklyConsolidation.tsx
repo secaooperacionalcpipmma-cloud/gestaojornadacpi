@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Send,
   Calendar,
@@ -37,9 +37,14 @@ export const WeeklyConsolidation: React.FC<WeeklyConsolidationProps> = ({
   currentUser,
   onCreateBatch,
 }) => {
-  const [selectedWeekStart, setSelectedWeekStart] = useState('2026-08-20');
-  const [selectedWeekEnd, setSelectedWeekEnd] = useState('2026-08-24');
+  const [selectedWeekStart, setSelectedWeekStart] = useState(ordinance.startDate || '2026-09-22');
+  const [selectedWeekEnd, setSelectedWeekEnd] = useState(ordinance.endDate || '2026-10-26');
   const [seiDispatch, setSeiDispatch] = useState('DESPACHO-CPI-0198550/2026');
+
+  useEffect(() => {
+    if (ordinance.startDate) setSelectedWeekStart(ordinance.startDate);
+    if (ordinance.endDate) setSelectedWeekEnd(ordinance.endDate);
+  }, [ordinance.id, ordinance.startDate, ordinance.endDate]);
 
   // Operations eligible for consolidation: APROVADO, EXECUTADO, AGUARDANDO_CONFERENCIA
   const eligibleOperations = useMemo(() => {

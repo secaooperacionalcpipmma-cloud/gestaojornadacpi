@@ -39,6 +39,7 @@ import { storageService } from '../../services/storageService';
 import {
   getOrdinanceStatusInfo,
   sortOrdinancesWithInEffectFirst,
+  getOfficialCotasForOrdinance,
 } from '../../utils/ordinancePeriodUtils';
 import {
   copyFormattedHtmlToClipboard,
@@ -304,38 +305,20 @@ export function ReportsView({
   const quadroResumoData = useMemo(() => {
     const standardCodes = [...OFFICIAL_COMMAND_CODES];
 
-    // Get budgets for the selected ordinance
-    const effectiveBudgets =
-      (budgets && budgets.length > 0
-        ? budgets.filter((b) => b.ordinanceId === selectedOrdinanceId)
-        : []) || [];
+    // Determine target ordinance for Quadro Resumo
+    const targetOrd = ordinances.find((o) => o.id === selectedOrdinanceId) || activeOrdinance;
+    const defaultCotas = getOfficialCotasForOrdinance(targetOrd);
 
-    const storedBudgets =
-      effectiveBudgets.length > 0
-        ? effectiveBudgets
-        : storageService.getBudgets(selectedOrdinanceId);
-
-    // Official standard amounts defined for Portaria 122/2026
-    const defaultDisponibilizado: Record<string, { val: number; joes: number }> = {
-      'CPI': { val: 10500, joes: 30 },
-      'CPA/I-1': { val: 65100, joes: 186 },
-      'CPA/I-2': { val: 65100, joes: 186 },
-      'CPA/I-3': { val: 105000, joes: 300 },
-      'CPA/I-4': { val: 65100, joes: 186 },
-      'CPA/I-5': { val: 80500, joes: 230 },
-      'CPA/I-6': { val: 59500, joes: 170 },
-      'CPA/I-7': { val: 65100, joes: 186 },
-      'CPA/I-8': { val: 65100, joes: 186 },
-      'CPA/I-9': { val: 79100, joes: 226 },
-    };
+    // Stored budgets for target ordinance
+    const storedBudgets = storageService.getBudgets(targetOrd.id);
 
     const rows = standardCodes.map((code) => {
       const bgt = storedBudgets.find(
         (b) => normalizeCommandName(b.commandId) === normalizeCommandName(code)
       );
-      const def = defaultDisponibilizado[code] || { val: 0, joes: 0 };
+      const def = defaultCotas[code] || { amount: 0, joes: 0 };
       const valorTotalDisponibilizado =
-        bgt?.budgetAmount !== undefined ? bgt.budgetAmount : def.val;
+        bgt?.budgetAmount !== undefined ? bgt.budgetAmount : def.amount;
       const quantJoe = bgt?.plannedJoes !== undefined ? bgt.plannedJoes : def.joes;
 
       // Filter operations for this unit
@@ -390,7 +373,7 @@ export function ReportsView({
       totalQuantDisponivel,
       totalGeral: totalExecutado, // backward compatibility
     };
-  }, [filteredOperations, selectedOrdinanceId, budgets]);
+  }, [filteredOperations, selectedOrdinanceId, ordinances, activeOrdinance]);
 
   // Command selection helpers for multi-unit selection array
   const handleSelectAllCommands = () => {
@@ -977,7 +960,7 @@ export function ReportsView({
         <div className="p-3.5 bg-sky-50/70 border border-[#7EC2E8]/40 rounded-xl flex items-start gap-3 text-xs text-slate-700">
           <Info className="w-4 h-4 text-[#002D5A] shrink-0 mt-0.5" />
           <div className="leading-relaxed">
-            Configurado para a <strong>Portaria em Vigor ({activeOrdinance.number})</strong>. Os cálculos de cada CPAI e do Total Geral são executados <strong>automaticamente pelo sistema</strong>. A opção <strong>"Copiar p/ Word"</strong> copia a tabela exatamente como exibida com todas as grades, cabeçalhos azuis e valores formatados para colar com <kbd className="px-1.5 py-0.5 bg-white rounded border border-slate-300 font-mono text-[10px] font-bold text-slate-800">Ctrl + V</kbd> no Word ou SEI.
+            Configurado para a <strong>{currentOrd.name || currentOrd.number}</strong>. Os cálculos de cada CPAI e do Total Geral são executados <strong>automaticamente pelo sistema</strong>. A opção <strong>"Copiar p/ Word"</strong> copia a tabela exatamente como exibida com todas as grades, cabeçalhos azuis e valores formatados para colar com <kbd className="px-1.5 py-0.5 bg-white rounded border border-slate-300 font-mono text-[10px] font-bold text-slate-800">Ctrl + V</kbd> no Word ou SEI.
           </div>
         </div>
       </div>

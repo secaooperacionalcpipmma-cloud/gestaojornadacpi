@@ -12,6 +12,7 @@ import {
 } from '../utils/formatters';
 import { formatCommandDisplay, sortOperationsOfficial } from './excelService';
 import { OFFICIAL_COMMAND_CODES, normalizeCommandName } from '../utils/commandUtils';
+import { getOfficialCotasForOrdinance } from '../utils/ordinancePeriodUtils';
 
 export const pdfService = {
   // Official Portaria PDF Generator (Primeiro Anexo)
@@ -677,18 +678,12 @@ export const pdfService = {
     if (reportType === 'UNIFIED' || reportType === 'SUMMARY_CPI') {
       const standardCodes = [...OFFICIAL_COMMAND_CODES];
 
-      const defaultDisponibilizado: Record<string, { val: number; joes: number }> = {
-        'CPI': { val: 10500, joes: 30 },
-        'CPA/I-1': { val: 65100, joes: 186 },
-        'CPA/I-2': { val: 65100, joes: 186 },
-        'CPA/I-3': { val: 105000, joes: 300 },
-        'CPA/I-4': { val: 65100, joes: 186 },
-        'CPA/I-5': { val: 80500, joes: 230 },
-        'CPA/I-6': { val: 59500, joes: 170 },
-        'CPA/I-7': { val: 65100, joes: 186 },
-        'CPA/I-8': { val: 65100, joes: 186 },
-        'CPA/I-9': { val: 79100, joes: 226 },
-      };
+      const officialCotas = getOfficialCotasForOrdinance(ordinance);
+      const defaultDisponibilizado: Record<string, { val: number; joes: number }> = {};
+      standardCodes.forEach((code) => {
+        const cota = officialCotas[code] || { amount: 0, joes: 0 };
+        defaultDisponibilizado[code] = { val: cota.amount, joes: cota.joes };
+      });
 
       const sumMap: Record<string, number> = {};
       const sumJoeMap: Record<string, number> = {};

@@ -140,7 +140,15 @@ class StorageService {
           this.set(STORAGE_KEYS.ORDINANCES, result.ordinances, true);
         }
         if (result.budgets && result.budgets.length > 0) {
-          this.set(STORAGE_KEYS.BUDGETS, result.budgets, true);
+          const currentBudgets = this.get<CommandBudget[]>(STORAGE_KEYS.BUDGETS, INITIAL_BUDGETS);
+          const has127 = result.budgets.some((b) => b.ordinanceId === 'ord-127-2026');
+          const mergedBudgets = [...result.budgets];
+          if (!has127) {
+            const local127 = currentBudgets.filter((b) => b.ordinanceId === 'ord-127-2026');
+            const init127 = INITIAL_BUDGETS.filter((b) => b.ordinanceId === 'ord-127-2026');
+            mergedBudgets.push(...(local127.length > 0 ? local127 : init127));
+          }
+          this.set(STORAGE_KEYS.BUDGETS, mergedBudgets, true);
         }
         if (result.operations) {
           const pendingOps = this.getPendingOperations();
@@ -834,14 +842,47 @@ class StorageService {
     let allBudgets = [...rawBudgets];
     let changed = false;
 
-    // Check if initial budgets for any ordinance (like ord-127-2026 or ord-122-2026) are missing in storage
-    const targetOrdId = ordinanceId || 'ord-127-2026';
-    const hasBudgetsForOrd = allBudgets.some((b) => b.ordinanceId === targetOrdId);
-    if (!hasBudgetsForOrd) {
-      const initBudgetsForOrd = INITIAL_BUDGETS.filter((b) => b.ordinanceId === targetOrdId);
-      if (initBudgetsForOrd.length > 0) {
-        allBudgets.push(...initBudgetsForOrd);
+    // 1. Assign missing ordinanceId to legacy records (default to ord-122-2026)
+    allBudgets = allBudgets.map((b) => {
+      if (!b.ordinanceId) {
         changed = true;
+        return { ...b, ordinanceId: 'ord-122-2026' };
+      }
+      return b;
+    });
+
+    // 2. Validate Portaria 127/2026 official quotas (must be 1.105 JOEs / R$ 386.750,00)
+    const budgets127 = allBudgets.filter((b) => b.ordinanceId === 'ord-127-2026');
+    const is127Corrupted =
+      budgets127.length > 0 &&
+      (budgets127.some((b) => normalizeCommandName(b.commandId) === 'CPA/I-1' && b.plannedJoes === 186) ||
+        budgets127.reduce((sum, b) => sum + (b.plannedJoes || 0), 0) === 1886);
+
+    if (budgets127.length === 0 || is127Corrupted) {
+      // Remove any corrupted 127 records and replace with official Anexo I of Portaria 127/2026
+      allBudgets = allBudgets.filter((b) => b.ordinanceId !== 'ord-127-2026');
+      const init127 = INITIAL_BUDGETS.filter((b) => b.ordinanceId === 'ord-127-2026');
+      allBudgets.push(...init127);
+      changed = true;
+    }
+
+    // 3. Ensure Portaria 122/2026 historical quotas are also available
+    const hasBudgets122 = allBudgets.some((b) => b.ordinanceId === 'ord-122-2026');
+    if (!hasBudgets122) {
+      const init122 = INITIAL_BUDGETS.filter((b) => b.ordinanceId === 'ord-122-2026');
+      allBudgets.push(...init122);
+      changed = true;
+    }
+
+    // 4. If any requested custom ordinance is missing, load its initial records if present
+    if (ordinanceId && ordinanceId !== 'ord-127-2026' && ordinanceId !== 'ord-122-2026') {
+      const hasOrd = allBudgets.some((b) => b.ordinanceId === ordinanceId);
+      if (!hasOrd) {
+        const initForOrd = INITIAL_BUDGETS.filter((b) => b.ordinanceId === ordinanceId);
+        if (initForOrd.length > 0) {
+          allBudgets.push(...initForOrd);
+          changed = true;
+        }
       }
     }
 

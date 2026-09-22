@@ -17,6 +17,8 @@ import { OrdinancePeriod, CommandBudget, CommandUnit, OperationLaunch } from '..
 import { formatCurrencyBRL, formatInteger } from '../../utils/formatters';
 import { UnitSpendingChart } from './UnitSpendingChart';
 import { CommandBadge } from '../common/CommandBadge';
+import { getOfficialCotasForOrdinance } from '../../utils/ordinancePeriodUtils';
+import { normalizeCommandName } from '../../utils/commandUtils';
 
 interface DashboardViewProps {
   ordinance: OrdinancePeriod;
@@ -44,8 +46,12 @@ export function DashboardView({
   const totalLaunchedJoes = currentOps.reduce((sum, o) => sum + (o.officersCount || 0), 0);
   const totalExecutedAmount = currentOps.reduce((sum, o) => sum + (o.totalValue || 0), 0);
 
-  const totalPlannedJoes = ordinance.totalPlannedJoes || 1886;
-  const totalPlannedBudget = ordinance.totalBudget || 660100;
+  const officialCotas = getOfficialCotasForOrdinance(ordinance);
+  const totalOfficialJoes = Object.values(officialCotas).reduce((sum, c) => sum + c.joes, 0);
+  const totalOfficialAmount = Object.values(officialCotas).reduce((sum, c) => sum + c.amount, 0);
+
+  const totalPlannedJoes = ordinance.totalPlannedJoes || totalOfficialJoes;
+  const totalPlannedBudget = ordinance.totalBudget || totalOfficialAmount;
 
   const executionPercentage = totalPlannedJoes > 0 ? Math.round((totalLaunchedJoes / totalPlannedJoes) * 100) : 0;
 
@@ -58,16 +64,18 @@ export function DashboardView({
 
   // Command summary data
   const commandStats = commands.map((cmd) => {
-    const bgt = budgets.find((b) => b.commandId === cmd.code || b.commandId === cmd.id);
+    const normCode = normalizeCommandName(cmd.code || cmd.id || cmd.name);
+    const bgt = budgets.find((b) => normalizeCommandName(b.commandId) === normCode);
     const cmdOps = currentOps.filter(
-      (o) => o.commandId === cmd.code || o.commandId === cmd.name || o.commandId.includes(cmd.id)
+      (o) => normalizeCommandName(o.commandId) === normCode
     );
 
     const launched = cmdOps.reduce((sum, o) => sum + o.officersCount, 0);
-    const planned = bgt ? bgt.plannedJoes : 186;
+    const defaultCota = officialCotas[normCode] || { joes: 106, amount: 37100 };
+    const planned = bgt ? bgt.plannedJoes : defaultCota.joes;
     const percentage = planned > 0 ? Math.round((launched / planned) * 100) : 0;
     const spentAmount = cmdOps.reduce((sum, o) => sum + o.totalValue, 0);
-    const totalCmdBudget = bgt ? bgt.budgetAmount : planned * 350;
+    const totalCmdBudget = bgt ? bgt.budgetAmount : defaultCota.amount;
     const balance = Math.max(0, totalCmdBudget - spentAmount);
 
     return {

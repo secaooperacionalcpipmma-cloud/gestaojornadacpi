@@ -61,6 +61,55 @@ export function getOrdinancePeriodText(ordinance: OrdinancePeriod): string {
   return 'Período não definido';
 }
 
+export interface OfficialCotaItem {
+  joes: number;
+  amount: number;
+}
+
+// Cotas Oficiais do Anexo I da Portaria nº 127/2026 – GCG (SEI 2026.190110.39762 / 017554882)
+// Período: 22/09/2026 a 26/10/2026 - Total CPI: 1.105 JOEs / R$ 386.750,00
+export const OFFICIAL_127_COTAS: Record<string, OfficialCotaItem> = {
+  'CPI': { joes: 25, amount: 8750 },
+  'CPA/I-1': { joes: 106, amount: 37100 },
+  'CPA/I-2': { joes: 106, amount: 37100 },
+  'CPA/I-3': { joes: 200, amount: 70000 },
+  'CPA/I-4': { joes: 106, amount: 37100 },
+  'CPA/I-5': { joes: 137, amount: 47950 },
+  'CPA/I-6': { joes: 100, amount: 35000 },
+  'CPA/I-7': { joes: 105, amount: 36750 },
+  'CPA/I-8': { joes: 105, amount: 36750 },
+  'CPA/I-9': { joes: 115, amount: 40250 },
+};
+
+// Cotas Oficiais Anteriores da Portaria nº 122/2026 – GCG (Histórica)
+// Período: 20/08/2026 a 21/09/2026 - Total CPI: 1.886 JOEs / R$ 660.100,00
+export const OFFICIAL_122_COTAS: Record<string, OfficialCotaItem> = {
+  'CPI': { joes: 30, amount: 10500 },
+  'CPA/I-1': { joes: 186, amount: 65100 },
+  'CPA/I-2': { joes: 186, amount: 65100 },
+  'CPA/I-3': { joes: 300, amount: 105000 },
+  'CPA/I-4': { joes: 186, amount: 65100 },
+  'CPA/I-5': { joes: 230, amount: 80500 },
+  'CPA/I-6': { joes: 170, amount: 59500 },
+  'CPA/I-7': { joes: 186, amount: 65100 },
+  'CPA/I-8': { joes: 186, amount: 65100 },
+  'CPA/I-9': { joes: 226, amount: 79100 },
+};
+
+export function getOfficialCotasForOrdinance(
+  ordinance?: OrdinancePeriod | null
+): Record<string, OfficialCotaItem> {
+  if (!ordinance) return OFFICIAL_127_COTAS;
+  const is122 =
+    ordinance.number?.includes('122') ||
+    ordinance.id?.includes('122') ||
+    ordinance.name?.includes('122') ||
+    ordinance.status === 'ENCERRADA';
+
+  if (is122) return OFFICIAL_122_COTAS;
+  return OFFICIAL_127_COTAS;
+}
+
 export interface OrdinanceStatusInfo {
   isCurrentInEffect: boolean;
   isExpired: boolean;

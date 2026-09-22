@@ -21,6 +21,7 @@ import {
   normalizeCommandName,
   sortCommandsByOfficialOrder,
 } from '../../utils/commandUtils';
+import { getOfficialCotasForOrdinance } from '../../utils/ordinancePeriodUtils';
 
 export { getCommandOrderIndex };
 
@@ -52,14 +53,14 @@ export function UnitSpendingChart({
     () => currentOps.reduce((sum, o) => sum + (o.totalValue || 0), 0),
     [currentOps]
   );
-  const totalPlannedBudget = ordinance.totalBudget || 660100;
+  const officialCotas = getOfficialCotasForOrdinance(ordinance);
+  const totalOfficialAmount = Object.values(officialCotas).reduce((sum, c) => sum + c.amount, 0);
+  const totalPlannedBudget = ordinance.totalBudget || totalOfficialAmount;
   const overallPercentage = totalPlannedBudget > 0 ? (totalExecutedAmount / totalPlannedBudget) * 100 : 0;
 
   // 1. Calculate stats per CPA/I (Comandos de Policiamento de Área)
   // % referente ao valor em dinheiro definido para cada uma
   const cpaData = useMemo(() => {
-    const unitValue = ordinance.unitValueJoe || 350;
-
     const list = commands.map((cmd) => {
       const normCode = normalizeCommandName(cmd.code || cmd.id || cmd.name);
       const bgt = budgets.find((b) => normalizeCommandName(b.commandId) === normCode);
@@ -67,8 +68,9 @@ export function UnitSpendingChart({
         (o) => normalizeCommandName(o.commandId) === normCode
       );
 
-      const plannedJoes = bgt ? bgt.plannedJoes : normCode === 'CPI' ? 30 : 186;
-      const plannedBudget = bgt ? bgt.budgetAmount : plannedJoes * unitValue;
+      const defaultCota = officialCotas[normCode] || { joes: 106, amount: 37100 };
+      const plannedJoes = bgt ? bgt.plannedJoes : defaultCota.joes;
+      const plannedBudget = bgt ? bgt.budgetAmount : defaultCota.amount;
       const executedAmount = cmdOps.reduce((sum, o) => sum + (o.totalValue || 0), 0);
       const executedJoes = cmdOps.reduce((sum, o) => sum + (o.officersCount || 0), 0);
 

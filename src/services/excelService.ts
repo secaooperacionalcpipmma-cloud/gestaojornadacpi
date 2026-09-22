@@ -6,6 +6,7 @@ import {
   getCommandOrderIndex,
   OFFICIAL_COMMAND_CODES,
 } from '../utils/commandUtils';
+import { getOfficialCotasForOrdinance } from '../utils/ordinancePeriodUtils';
 
 // Format command display string (e.g. CPI, CPA/I-1 ... CPA/I-9)
 export function formatCommandDisplay(cmdCode: string): string {
@@ -74,19 +75,12 @@ export const excelService = {
 
     // Standard official list CPI, CPA/I-1 to CPA/I-9
     const standardCodes = [...OFFICIAL_COMMAND_CODES];
-
-    const defaultDisponibilizado: Record<string, { val: number; joes: number }> = {
-      'CPI': { val: 10500, joes: 30 },
-      'CPA/I-1': { val: 65100, joes: 186 },
-      'CPA/I-2': { val: 65100, joes: 186 },
-      'CPA/I-3': { val: 105000, joes: 300 },
-      'CPA/I-4': { val: 65100, joes: 186 },
-      'CPA/I-5': { val: 80500, joes: 230 },
-      'CPA/I-6': { val: 59500, joes: 170 },
-      'CPA/I-7': { val: 65100, joes: 186 },
-      'CPA/I-8': { val: 65100, joes: 186 },
-      'CPA/I-9': { val: 79100, joes: 226 },
-    };
+    const officialCotas = getOfficialCotasForOrdinance(ordinance);
+    const defaultDisponibilizado: Record<string, { val: number; joes: number }> = {};
+    standardCodes.forEach((code) => {
+      const cota = officialCotas[code] || { amount: 0, joes: 0 };
+      defaultDisponibilizado[code] = { val: cota.amount, joes: cota.joes };
+    });
 
     const sumMap: Record<string, number> = {};
     const sumJoeMap: Record<string, number> = {};
@@ -419,19 +413,12 @@ export const excelService = {
 
     // --- 5. QUADRO RESUMO CPI (PRINT 02 - 7 COLUNAS OFICIAIS) ---
     const standardCodes = [...OFFICIAL_COMMAND_CODES];
-
-    const defaultDisponibilizado: Record<string, { val: number; joes: number }> = {
-      'CPI': { val: 10500, joes: 30 },
-      'CPA/I-1': { val: 65100, joes: 186 },
-      'CPA/I-2': { val: 65100, joes: 186 },
-      'CPA/I-3': { val: 105000, joes: 300 },
-      'CPA/I-4': { val: 65100, joes: 186 },
-      'CPA/I-5': { val: 80500, joes: 230 },
-      'CPA/I-6': { val: 59500, joes: 170 },
-      'CPA/I-7': { val: 65100, joes: 186 },
-      'CPA/I-8': { val: 65100, joes: 186 },
-      'CPA/I-9': { val: 79100, joes: 226 },
-    };
+    const officialCotas = getOfficialCotasForOrdinance(ordinance);
+    const defaultDisponibilizado: Record<string, { val: number; joes: number }> = {};
+    standardCodes.forEach((code) => {
+      const cota = officialCotas[code] || { amount: 0, joes: 0 };
+      defaultDisponibilizado[code] = { val: cota.amount, joes: cota.joes };
+    });
 
     const sumMap: Record<string, number> = {};
     const sumJoeMap: Record<string, number> = {};
@@ -799,18 +786,12 @@ export const excelService = {
     }
 
     const standardCodes = [...OFFICIAL_COMMAND_CODES];
-    const defaultDisponibilizado: Record<string, { val: number; joes: number }> = {
-      'CPI': { val: 10500, joes: 30 },
-      'CPA/I-1': { val: 65100, joes: 186 },
-      'CPA/I-2': { val: 65100, joes: 186 },
-      'CPA/I-3': { val: 105000, joes: 300 },
-      'CPA/I-4': { val: 65100, joes: 186 },
-      'CPA/I-5': { val: 80500, joes: 230 },
-      'CPA/I-6': { val: 59500, joes: 170 },
-      'CPA/I-7': { val: 65100, joes: 186 },
-      'CPA/I-8': { val: 65100, joes: 186 },
-      'CPA/I-9': { val: 79100, joes: 226 },
-    };
+    const officialCotas = getOfficialCotasForOrdinance(ordinance);
+    const defaultDisponibilizado: Record<string, { val: number; joes: number }> = {};
+    standardCodes.forEach((code) => {
+      const cota = officialCotas[code] || { amount: 0, joes: 0 };
+      defaultDisponibilizado[code] = { val: cota.amount, joes: cota.joes };
+    });
 
     const sumMap: Record<string, number> = {};
     const sumJoeMap: Record<string, number> = {};
