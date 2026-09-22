@@ -589,6 +589,38 @@ export const OFFICIAL_CPI_SUMMARY: CpiExecutiveSummary = {
   totalAmount: 660100,
 };
 
+export const OFFICIAL_CPI_SUMMARY_127: CpiExecutiveSummary = {
+  ordinanceNumber: 'PORTARIA Nº 127/2026 – GCG',
+  period: '22/09/2026 a 26/10/2026',
+  seiProcess: '2026.190110.39762',
+  seiDocNumber: '017554882',
+  parameters: {
+    duration: 'Até 06 Horas (Turno contínuo extraordinário)',
+    unitValue: 'R$ 350,00 (Por jornada / toda a semana)',
+    monthlyLimit: 'Máx. 12 JOEs (Teto legal intransponível por policial)',
+    dutyRegime: 'Horário de Folga (Vedada qualquer sobreposição ordinária)',
+    legalConcept:
+      'É a jornada efetivamente cumprida pelo policial militar em período distinto de sua jornada ordinária de serviço e de seu expediente regular. É expressamente vedado utilizar a JOE para remunerar serviço ordinário, complementar escala de rotina, substituir folga regulamentar ou pagar militar já à disposição da Administração (Art. 2º).',
+  },
+  seiPhases: OFFICIAL_CPI_SUMMARY.seiPhases,
+  impediments: OFFICIAL_CPI_SUMMARY.impediments,
+  cpiDuties: OFFICIAL_CPI_SUMMARY.cpiDuties,
+  quotaTable: [
+    { unit: 'CPI — Direção Setorial', joes: 25, amount: 8750 },
+    { unit: 'Comando de Policiamento de Área do Interior - 1 (CPA/I-1)', joes: 106, amount: 37100 },
+    { unit: 'Comando de Policiamento de Área do Interior - 2 (CPA/I-2)', joes: 106, amount: 37100 },
+    { unit: 'Comando de Policiamento de Área do Interior - 3 (CPA/I-3)', joes: 200, amount: 70000 },
+    { unit: 'Comando de Policiamento de Área do Interior - 4 (CPA/I-4)', joes: 106, amount: 37100 },
+    { unit: 'Comando de Policiamento de Área do Interior - 5 (CPA/I-5)', joes: 137, amount: 47950 },
+    { unit: 'Comando de Policiamento de Área do Interior - 6 (CPA/I-6)', joes: 100, amount: 35000 },
+    { unit: 'Comando de Policiamento de Área do Interior - 7 (CPA/I-7)', joes: 105, amount: 36750 },
+    { unit: 'Comando de Policiamento de Área do Interior - 8 (CPA/I-8)', joes: 105, amount: 36750 },
+    { unit: 'Comando de Policiamento de Área do Interior - 9 (CPA/I-9)', joes: 115, amount: 40250 },
+  ],
+  totalJoes: 1105,
+  totalAmount: 386750,
+};
+
 // Automatic generator for new user-provided ordinances:
 export function generateCpiSummaryFromInput(data: {
   ordinanceNumber: string;

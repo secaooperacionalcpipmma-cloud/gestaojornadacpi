@@ -957,7 +957,7 @@ export const pdfService = {
     const finalY = (doc as any).lastAutoTable?.finalY || 160;
     doc.setFontSize(8);
     doc.text(
-      'Base Legal: Art. 5º e 13, II da Portaria nº 122/2026-GCG. Informações sujeitas a auditoria no SEI.',
+      `Base Legal: Art. 5º e 13, II da Portaria nº ${ordinance?.number || '127/2026 – GCG'}. Informações sujeitas a auditoria no SEI.`,
       14,
       finalY + 10
     );
@@ -984,7 +984,7 @@ export const pdfService = {
     doc.setFont('helvetica', 'normal');
     doc.text('COMANDO DE POLICIAMENTO DO INTERIOR (CPI) • PAGADORIA-DGP', 105, 13, { align: 'center' });
     doc.setFontSize(8);
-    doc.text('ENCAMINHAMENTO SEMANAL DE JOE — ART. 13, INCISO V DA PORTARIA Nº 122/2026-GCG', 105, 19, { align: 'center' });
+    doc.text(`ENCAMINHAMENTO SEMANAL DE JOE — ART. 13, INCISO V DA PORTARIA Nº ${_ordinance?.number || '127/2026 – GCG'}`, 105, 19, { align: 'center' });
     doc.text(`OBRIGATORIEDADE DE TERÇA-FEIRA • PROCESSO SEI: ${batch.seiProcess}`, 105, 23, { align: 'center' });
 
     // Details box
@@ -1051,7 +1051,7 @@ export const pdfService = {
     doc.save(`CPI-PMMA_Consolidacao_Semanal_${batch.batchNumber.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
   },
 
-  generateRenePDF(operation: OperationLaunch, _ordinance: OrdinancePeriod): void {
+  generateRenePDF(operation: OperationLaunch, ordinance?: OrdinancePeriod): void {
     const doc = new jsPDF('portrait', 'mm', 'a4');
 
     // Header
@@ -1066,7 +1066,7 @@ export const pdfService = {
     doc.setFont('helvetica', 'normal');
     doc.text('RENE — RELATÓRIO DE EXECUÇÃO DE JORNADA OPERACIONAL EXTRAORDINÁRIA', 105, 14, { align: 'center' });
     doc.setFontSize(8);
-    doc.text(`BASE LEGAL: ART. 10 DA PORTARIA Nº 122/2026-GCG • SEI: ${operation.seiProcessNumber}`, 105, 19, { align: 'center' });
+    doc.text(`BASE LEGAL: ART. 10 DA PORTARIA ${ordinance?.number || '127/2026 – GCG'} • SEI: ${operation.seiProcessNumber}`, 105, 19, { align: 'center' });
 
     // Mission Summary
     doc.setTextColor(15, 23, 42);
@@ -1140,7 +1140,7 @@ export const pdfService = {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.text(
-      'DECLARAÇÃO INSTITUCIONAL (Art. 10 e 11 da Portaria 122/2026-GCG): Certificamos que os militares constantes desta relação cumpriram integralmente a jornada extraordinária em período de folga, sem sobreposição com escala ordinária, tendo sido verificado o controle de frequência e registro no CIOPS/sistema operacional.',
+      `DECLARAÇÃO INSTITUCIONAL (Art. 10 e 11 da Portaria ${ordinance?.number || '127/2026 – GCG'}): Certificamos que os militares constantes desta relação cumpriram integralmente a jornada extraordinária em período de folga, sem sobreposição com escala ordinária, tendo sido verificado o controle de frequência e registro no CIOPS/sistema operacional.`,
       14,
       finalY + 8,
       { maxWidth: 182 }

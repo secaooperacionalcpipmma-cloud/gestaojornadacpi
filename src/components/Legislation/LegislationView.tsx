@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   BookOpen,
   FileText,
@@ -30,6 +30,7 @@ import {
   CpiExecutiveSummary,
   OFFICIAL_PORTARIA_122,
   OFFICIAL_CPI_SUMMARY,
+  OFFICIAL_CPI_SUMMARY_127,
   generateCpiSummaryFromInput,
 } from '../../data/legislationData';
 import { formatCurrencyBRL, formatInteger } from '../../utils/formatters';
@@ -54,9 +55,24 @@ export function LegislationView({
   // Sub-tab: 'RESUMO' | 'PORTARIA_INTEGRA' | 'NOVA_PORTARIA'
   const [subTab, setSubTab] = useState<'RESUMO' | 'PORTARIA_INTEGRA' | 'NOVA_PORTARIA'>('RESUMO');
 
-  // Active Portaria Document
+  const is127Active =
+    activeOrdinance?.number?.includes('127') ||
+    activeOrdinance?.id?.includes('127') ||
+    activeOrdinance?.name?.includes('127');
+
+  // Active Portaria Document & Executive Summary
   const [portariaDoc, setPortariaDoc] = useState<LegislationDocument>(OFFICIAL_PORTARIA_122);
-  const [activeSummary, setActiveSummary] = useState<CpiExecutiveSummary>(OFFICIAL_CPI_SUMMARY);
+  const [activeSummary, setActiveSummary] = useState<CpiExecutiveSummary>(
+    is127Active ? OFFICIAL_CPI_SUMMARY_127 : OFFICIAL_CPI_SUMMARY
+  );
+
+  useEffect(() => {
+    if (is127Active) {
+      setActiveSummary(OFFICIAL_CPI_SUMMARY_127);
+    } else {
+      setActiveSummary(OFFICIAL_CPI_SUMMARY);
+    }
+  }, [is127Active]);
 
   // Search in Portaria text
   const [searchTerm, setSearchTerm] = useState('');
@@ -219,7 +235,7 @@ export function LegislationView({
                 Legislação & Atribuições do CPI
               </h2>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                Portaria 122/2026-GCG
+                {activeSummary.ordinanceNumber || activeOrdinance?.number || 'Portaria 127/2026-GCG'}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
@@ -270,7 +286,7 @@ export function LegislationView({
           }`}
         >
           <FileText className="w-4 h-4" />
-          <span>Primeiro Anexo: Portaria Nº 122/2026 na Íntegra</span>
+          <span>Primeiro Anexo: {activeSummary.ordinanceNumber || 'Portaria'} na Íntegra</span>
         </button>
 
         <button
@@ -601,13 +617,13 @@ export function LegislationView({
 
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-[11px] text-slate-600 leading-relaxed">
               <strong className="text-slate-800 font-bold">Base Legal & Responsabilidade: </strong>
-              Portaria nº 122/2026-GCG (Processo SEI {activeSummary.seiProcess} / Doc. SEI nº {activeSummary.seiDocNumber}). Informações falsas ou indevidas sujeitam os agentes a sanções administrativas, disciplinares, civis e penais, além da restituição integral ao erário (Art. 16).
+              Portaria nº {activeSummary.ordinanceNumber} (Processo SEI {activeSummary.seiProcess} / Doc. SEI nº {activeSummary.seiDocNumber}). Informações falsas ou indevidas sujeitam os agentes a sanções administrativas, disciplinares, civis e penais, além da restituição integral ao erário (Art. 16).
             </div>
           </div>
         </div>
       )}
 
-      {/* TAB 2: TEXTO INTEGRAL DA PORTARIA Nº 122/2026-GCG (PRIMEIRO ANEXO) */}
+      {/* TAB 2: TEXTO INTEGRAL DA PORTARIA NA ÍNTEGRA (PRIMEIRO ANEXO) */}
       {subTab === 'PORTARIA_INTEGRA' && (
         <div className="space-y-6">
           {/* Search & Filter Toolbar */}

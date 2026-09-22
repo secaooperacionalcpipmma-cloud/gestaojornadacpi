@@ -865,7 +865,7 @@ class GoogleDriveBackupService {
     const rawPayload = storageService.exportFullBackup(currentUser);
     return {
       version: '3.0.0',
-      systemName: 'Controle e Auditoria de JOE - CPI/PMMA (Portaria nº 122/2026)',
+      systemName: `Controle e Auditoria de JOE - CPI/PMMA (${storageService.getActiveOrdinance()?.number || 'Portaria nº 127/2026 – GCG'})`,
       targetAccountEmail: TARGET_GOOGLE_EMAIL,
       createdAt: new Date().toISOString(),
       generatedBy: currentUser

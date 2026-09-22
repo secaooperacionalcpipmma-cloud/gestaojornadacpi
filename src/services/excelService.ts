@@ -770,7 +770,7 @@ export const excelService = {
     r1.height = 28;
 
     // Subheader
-    const r2 = wsResumo.addRow(['', 'QUADRO RESUMO OFICIAL DE EXECUÇÃO - PORTARIA Nº 122/2026', '', '', '', '', '', '']);
+    const r2 = wsResumo.addRow(['', `QUADRO RESUMO OFICIAL DE EXECUÇÃO - ${ordinance?.number || 'PORTARIA Nº 127/2026'}`.toUpperCase(), '', '', '', '', '', '']);
     wsResumo.mergeCells('B3:H3');
     r2.getCell(2).font = { name: 'Arial', size: 10.5, bold: true, color: { argb: 'FF0F172A' } };
     r2.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
@@ -1074,7 +1074,7 @@ export const excelService = {
       ['ID da Pasta Google Drive', '1rk7Urwzl1uyoJGNDPT23VTbFTzlNcQQP'],
       ['E-mail Oficial Vinculado', 'secaooperacional.cpi.pmma@gmail.com'],
       ['Usuário Responsável', currentUser ? `${currentUser.name} (${currentUser.role})` : 'Sistema Automático CPI'],
-      ['Portaria de Referência', ordinance?.number || 'Portaria nº 122/2026-GCG'],
+      ['Portaria de Referência', ordinance?.number || 'Portaria nº 127/2026 – GCG'],
       ['Total de Operações Salvas', `${sortedOps.length} operações`],
       ['Total de JOEs Empregadas', `${totQExec} JOEs`],
       ['Valor Total Executado', formatCurrencyBRL(totExec)],

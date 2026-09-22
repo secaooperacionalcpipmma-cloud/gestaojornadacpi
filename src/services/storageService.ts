@@ -630,14 +630,70 @@ class StorageService {
 
   // Ordinances
   getOrdinances(): OrdinancePeriod[] {
-    return this.get(STORAGE_KEYS.ORDINANCES, INITIAL_ORDINANCES);
+    const list = this.get<OrdinancePeriod[]>(STORAGE_KEYS.ORDINANCES, INITIAL_ORDINANCES);
+    const updated = [...list];
+    let changed = false;
+
+    // Ensure all standard initial ordinances (especially ord-127-2026 and ord-122-2026) are present
+    for (const initOrd of INITIAL_ORDINANCES) {
+      const idx = updated.findIndex(
+        (o) =>
+          o.id === initOrd.id ||
+          o.number === initOrd.number ||
+          (o.name && initOrd.name && o.name.toLowerCase() === initOrd.name.toLowerCase())
+      );
+      if (idx === -1) {
+        updated.push(initOrd);
+        changed = true;
+      } else {
+        // If the ordinance matches Portaria 127/2026, ensure its period dates and metadata are accurate
+        if (initOrd.id === 'ord-127-2026' || initOrd.number === '127/2026 – GCG') {
+          const current = updated[idx];
+          if (
+            !current.seiProcess ||
+            current.seiProcess === '2026.190110.' ||
+            !current.startDate ||
+            current.startDate !== '2026-09-22' ||
+            current.status !== 'VIGENTE'
+          ) {
+            updated[idx] = {
+              ...current,
+              name: current.name || initOrd.name,
+              number: initOrd.number,
+              seiProcess:
+                current.seiProcess && current.seiProcess !== '2026.190110.'
+                  ? current.seiProcess
+                  : initOrd.seiProcess,
+              seiDocument: current.seiDocument || initOrd.seiDocument,
+              startDate: '2026-09-22',
+              endDate: '2026-10-26',
+              unitValueJoe: 350.0,
+              monthlyIndividualLimit: 12,
+              status: current.status || 'VIGENTE',
+              notes: current.notes || initOrd.notes,
+            };
+            changed = true;
+          }
+        }
+      }
+    }
+
+    if (changed) {
+      this.set(STORAGE_KEYS.ORDINANCES, updated, true);
+    }
+    return updated;
   }
 
   getActiveOrdinance(): OrdinancePeriod {
     const ordinances = this.getOrdinances();
     const savedId = this.get<string | null>(STORAGE_KEYS.ACTIVE_ORDINANCE_ID, null);
     const active = savedId ? ordinances.find((o) => o.id === savedId) : null;
-    return active || ordinances.find((o) => o.status === 'VIGENTE') || ordinances[0];
+    return (
+      active ||
+      ordinances.find((o) => o.status === 'VIGENTE') ||
+      ordinances.find((o) => o.id === 'ord-127-2026' || o.number?.includes('127')) ||
+      ordinances[0]
+    );
   }
 
   setActiveOrdinanceId(id: string): void {
@@ -676,21 +732,40 @@ class StorageService {
         sourceBudgets = this.getBudgets(copyFromPeriodId);
       }
 
+      // Check if it's Portaria 127/2026 to use official Anexo I values as default
+      const is127 = ordinance.number?.includes('127') || ordinance.id?.includes('127');
+      const official127Map: Record<string, number> = {
+        'CPI': 25,
+        'CPA/I-1': 106,
+        'CPA/I-2': 106,
+        'CPA/I-3': 200,
+        'CPA/I-4': 106,
+        'CPA/I-5': 137,
+        'CPA/I-6': 100,
+        'CPA/I-7': 105,
+        'CPA/I-8': 105,
+        'CPA/I-9': 115,
+      };
+
       commands.forEach((cmd) => {
         const matchingSource = sourceBudgets.find((b) => normalizeCommandName(b.commandId) === cmd.code);
         const joes = matchingSource
           ? matchingSource.plannedJoes
+          : is127 && official127Map[cmd.code] !== undefined
+          ? official127Map[cmd.code]
           : cmd.code === 'CPI'
-          ? 30
+          ? 25
           : cmd.code.includes('3')
-          ? 300
+          ? 200
           : cmd.code.includes('5')
-          ? 230
+          ? 137
           : cmd.code.includes('9')
-          ? 226
+          ? 115
           : cmd.code.includes('6')
-          ? 170
-          : 186;
+          ? 100
+          : cmd.code.includes('7') || cmd.code.includes('8')
+          ? 105
+          : 106;
 
         const bAmount = joes * (ordinance.unitValueJoe || 350);
         budgets.push({
@@ -722,8 +797,26 @@ class StorageService {
 
   // Budgets / Ceilings
   getBudgets(ordinanceId?: string): CommandBudget[] {
-    const rawBudgets = this.get(STORAGE_KEYS.BUDGETS, INITIAL_BUDGETS);
-    const normalized = rawBudgets.map((b) => ({
+    const rawBudgets = this.get<CommandBudget[]>(STORAGE_KEYS.BUDGETS, INITIAL_BUDGETS);
+    let allBudgets = [...rawBudgets];
+    let changed = false;
+
+    // Check if initial budgets for any ordinance (like ord-127-2026 or ord-122-2026) are missing in storage
+    const targetOrdId = ordinanceId || 'ord-127-2026';
+    const hasBudgetsForOrd = allBudgets.some((b) => b.ordinanceId === targetOrdId);
+    if (!hasBudgetsForOrd) {
+      const initBudgetsForOrd = INITIAL_BUDGETS.filter((b) => b.ordinanceId === targetOrdId);
+      if (initBudgetsForOrd.length > 0) {
+        allBudgets.push(...initBudgetsForOrd);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      this.set(STORAGE_KEYS.BUDGETS, allBudgets, true);
+    }
+
+    const normalized = allBudgets.map((b) => ({
       ...b,
       commandId: normalizeCommandName(b.commandId),
     }));
@@ -768,22 +861,40 @@ class StorageService {
         const normCode = normalizeCommandName(b.commandId);
         return {
           ...b,
+          ordinanceId,
           commandId: normCode,
-          availableBalance: b.budgetAmount - (b.committedAmount + b.executedAmount),
+          availableBalance: Math.max(0, b.budgetAmount - (b.committedAmount + b.executedAmount)),
         };
       }),
     ];
     this.set(STORAGE_KEYS.BUDGETS, merged);
     supabaseService.upsertBudgets(updatedBudgets).catch(console.warn);
 
+    // Also update totalPlannedJoes and totalBudget on the OrdinancePeriod record
+    const totalJoes = updatedBudgets.reduce((sum, b) => sum + (b.plannedJoes || 0), 0);
+    const totalAmount = updatedBudgets.reduce((sum, b) => sum + (b.budgetAmount || 0), 0);
+    const ordinances = this.getOrdinances();
+    const ordIdx = ordinances.findIndex((o) => o.id === ordinanceId);
+    if (ordIdx >= 0) {
+      ordinances[ordIdx] = {
+        ...ordinances[ordIdx],
+        totalPlannedJoes: totalJoes,
+        totalBudget: totalAmount,
+      };
+      this.set(STORAGE_KEYS.ORDINANCES, ordinances);
+      supabaseService.upsertOrdinance(ordinances[ordIdx]).catch(console.warn);
+    }
+
     this.logAudit({
       userName: user.name,
       userRole: user.role,
       action: 'salvar_tetos',
       recordId: `tetos #${ordinanceId}`,
-      description: `Atualização em lote dos tetos da Portaria. Total de JOEs e limites financeiros redefinidos.`,
+      description: `Atualização em lote dos tetos da Portaria (${totalJoes} JOEs - R$ ${totalAmount.toFixed(2)}).`,
       ipAddress: '2804:6788:4015:7c00:d3d:e9c2:1b3f:2aea',
     });
+
+    this.notifyChange('BUDGETS_UPDATED');
   }
 
   // Recalculate Budgets based on operations

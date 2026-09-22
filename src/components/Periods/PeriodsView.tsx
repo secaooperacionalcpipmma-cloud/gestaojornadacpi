@@ -47,11 +47,12 @@ export function PeriodsView({
     }
 
     const valJoe = Number(valorPadrao) || 350;
-    const totalJoes = 1886;
+    const is127 = portaria.includes('127');
+    const totalJoes = is127 ? 1105 : 1886;
     const totalBudget = totalJoes * valJoe;
 
     const newOrd: OrdinancePeriod = {
-      id: `ord-${Date.now()}`,
+      id: is127 ? 'ord-127-2026' : `ord-${Date.now()}`,
       name: nome.trim(),
       number: portaria.trim(),
       year: new Date(inicio).getFullYear() || 2026,
@@ -65,7 +66,9 @@ export function PeriodsView({
       totalBudget,
       totalPlannedJoes: totalJoes,
       status: status === 'VIGENTE' ? 'VIGENTE' : status === 'ENCERRADA' ? 'ENCERRADA' : 'RASCUNHO',
-      notes: 'Valores regulamentados pela portaria do Comando-Geral da PMMA (Anexo I).',
+      notes: is127
+        ? 'Valores e cotas regulamentadas pelo Comando-Geral da PMMA (Art. 17, §3º da Lei de Diretrizes de JOE - Anexo I da Portaria nº 127/2026 - GCG).'
+        : 'Valores regulamentados pela portaria do Comando-Geral da PMMA (Anexo I).',
       createdAt: new Date().toISOString(),
     };
 
@@ -170,16 +173,36 @@ export function PeriodsView({
 
       {/* Bottom Card: Novo período */}
       <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-6">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <PlusCircle className="w-5 h-5 text-[#002D5A]" />
-            <h3 className="text-lg font-bold text-slate-900 tracking-tight">
-              Cadastrar Nova Portaria de Regulamentação
-            </h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <PlusCircle className="w-5 h-5 text-[#002D5A]" />
+              <h3 className="text-lg font-bold text-slate-900 tracking-tight">
+                Cadastrar Nova Portaria de Regulamentação
+              </h3>
+            </div>
+            <p className="text-xs sm:text-sm text-slate-500 mt-1">
+              Cada nova portaria de JOE cria um período orçamentário. Você pode clonar os tetos de um período anterior para manter as cotas sem retrabalho.
+            </p>
           </div>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Cada nova portaria de JOE cria um período orçamentário. Você pode clonar os tetos de um período anterior para manter as cotas sem retrabalho.
-          </p>
+
+          <button
+            type="button"
+            onClick={() => {
+              setNome('Portaria 127/2026 – set/out 2026');
+              setPortaria('127/2026 – GCG');
+              setSeiProcess('2026.190110.39762');
+              setSeiDocument('017554882');
+              setInicio('2026-09-22');
+              setFim('2026-10-26');
+              setValorPadrao(350);
+              setStatus('VIGENTE');
+            }}
+            className="px-3.5 py-2 rounded-xl text-xs font-bold text-[#002D5A] bg-sky-50 hover:bg-sky-100 border border-[#7EC2E8] transition-all flex items-center gap-1.5 cursor-pointer self-start sm:self-auto shadow-2xs"
+          >
+            <FileText className="w-4 h-4 text-sky-600" />
+            <span>Preencher Portaria 127/2026</span>
+          </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">

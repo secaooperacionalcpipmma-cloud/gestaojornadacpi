@@ -248,7 +248,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
 
                   <div className="pt-2 px-3 border-t border-slate-100 flex justify-between items-center">
-                    <span className="text-[10px] text-slate-500">Portaria nº 122/2026-GCG</span>
+                    <span className="text-[10px] text-slate-500 font-medium">
+                      {activeOrdinance ? `Portaria nº ${activeOrdinance.number}` : 'Portaria nº 127/2026 – GCG'}
+                    </span>
                     <span className="text-[10px] font-bold text-emerald-700">Sistema Conectado</span>
                   </div>
                 </div>

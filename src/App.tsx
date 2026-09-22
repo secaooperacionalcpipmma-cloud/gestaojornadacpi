@@ -581,7 +581,7 @@ export default function App() {
       {/* Subtle Footer */}
       <footer className="mt-auto py-6 border-t border-slate-200/80 text-center text-xs text-slate-400">
         <div className="max-w-[1520px] mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>Controle de JOE v3.0.0 · Portaria nº 122/2026 – GCG · PMMA</span>
+          <span>Controle de JOE v3.0.0 · {activeOrdinance ? `Portaria nº ${activeOrdinance.number}` : 'Portaria nº 127/2026 – GCG'} · PMMA</span>
           <button
             onClick={() => {
               if (window.confirm('Deseja restaurar os dados de demonstração originais?')) {

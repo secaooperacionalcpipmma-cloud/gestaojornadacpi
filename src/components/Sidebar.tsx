@@ -12,12 +12,14 @@ import {
   ChevronRight,
   AlertTriangle,
 } from 'lucide-react';
+import { OrdinancePeriod } from '../types';
 
 interface SidebarProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
   pendingCount?: number;
   alertsCount?: number;
+  activeOrdinance?: OrdinancePeriod;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -25,6 +27,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onTabChange,
   pendingCount = 0,
   alertsCount = 0,
+  activeOrdinance,
 }) => {
   const menuItems = [
     {
@@ -133,13 +136,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="bg-white border border-slate-200 rounded-xl p-2.5 text-[11px] shadow-2xs">
           <div className="flex items-center space-x-1.5 text-[#00204A] font-bold text-[10px] uppercase">
             <Layers className="w-3.5 h-3.5 text-[#D97706]" />
-            <span>Portaria nº 122/2026-GCG</span>
+            <span>{activeOrdinance ? `Portaria nº ${activeOrdinance.number}` : 'Portaria nº 127/2026 – GCG'}</span>
           </div>
           <p className="text-slate-500 text-[10px] mt-1 line-clamp-2">
             Supervisão e auditoria contínua dos Comandos CPA/I-1 ao CPA/I-9.
           </p>
           <div className="mt-2 text-[9px] text-slate-500 flex justify-between items-center border-t border-slate-100 pt-1.5">
-            <span className="font-mono">SEI: 2026.190110.35458</span>
+            <span className="font-mono">SEI: {activeOrdinance?.seiProcess || '2026.190110.39762'}</span>
             <span className="text-emerald-700 font-bold bg-emerald-50 px-1 rounded">100% REGULAR</span>
           </div>
         </div>
