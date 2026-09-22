@@ -37,6 +37,10 @@ import { excelService, formatCommandDisplay, sortOperationsOfficial } from '../.
 import { pdfService } from '../../services/pdfService';
 import { storageService } from '../../services/storageService';
 import {
+  getOrdinanceStatusInfo,
+  sortOrdinancesWithInEffectFirst,
+} from '../../utils/ordinancePeriodUtils';
+import {
   copyFormattedHtmlToClipboard,
   buildDetailedTableHtml,
   buildQuadroResumoHtml,
@@ -986,11 +990,14 @@ export function ReportsView({
             onChange={(e) => setSelectedOrdinanceId(e.target.value)}
             className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-slate-800 font-semibold focus:outline-hidden focus:ring-2 focus:ring-[#7EC2E8] focus:border-[#002D5A]"
           >
-            {ordinances.map((ord) => (
-              <option key={ord.id} value={ord.id}>
-                {ord.name || ord.number} {ord.status === 'VIGENTE' ? '(Em Vigor)' : `(${ord.status})`}
-              </option>
-            ))}
+            {sortOrdinancesWithInEffectFirst(ordinances).map((ord) => {
+              const statusInfo = getOrdinanceStatusInfo(ord);
+              return (
+                <option key={ord.id} value={ord.id}>
+                  {ord.name || ord.number} {statusInfo.selectorLabel}
+                </option>
+              );
+            })}
             <option value="ALL">Todas as Portarias (Geral Histórico)</option>
           </select>
         </div>

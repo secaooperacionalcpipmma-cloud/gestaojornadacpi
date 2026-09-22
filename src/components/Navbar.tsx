@@ -9,6 +9,10 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { User, OrdinancePeriod } from '../types';
+import {
+  getOrdinanceStatusInfo,
+  sortOrdinancesWithInEffectFirst,
+} from '../utils/ordinancePeriodUtils';
 
 interface NavbarProps {
   currentUser: User;
@@ -125,37 +129,39 @@ export const Navbar: React.FC<NavbarProps> = ({
               {ordinanceDropdownOpen && (
                 <div className="absolute right-0 mt-2 w-72 bg-white text-slate-900 border border-slate-200 rounded-xl shadow-2xl py-2 z-50">
                   <div className="px-3 py-1.5 border-b border-slate-100 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Selecionar Portaria Vigente
+                    Portarias e Períodos de JOE
                   </div>
-                  {ordinances.map((ord) => (
-                    <button
-                      key={ord.id}
-                      onClick={() => {
-                        onOrdinanceChange(ord.id);
-                        setOrdinanceDropdownOpen(false);
-                      }}
-                      className={`w-full text-left px-3 py-2 text-xs flex flex-col hover:bg-slate-50 transition-colors ${
-                        ord.id === activeOrdinance.id ? 'bg-amber-50 text-[#00204A] font-bold' : 'text-slate-700'
-                      }`}
-                    >
-                      <div className="flex justify-between items-center">
-                        <span className="font-bold">{ord.number}</span>
-                        <span
-                          className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                            ord.status === 'VIGENTE'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          {ord.status}
+                  {sortOrdinancesWithInEffectFirst(ordinances).map((ord) => {
+                    const statusInfo = getOrdinanceStatusInfo(ord);
+                    return (
+                      <button
+                        key={ord.id}
+                        onClick={() => {
+                          onOrdinanceChange(ord.id);
+                          setOrdinanceDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-xs flex flex-col hover:bg-slate-50 transition-colors ${
+                          ord.id === activeOrdinance.id ? 'bg-sky-50 text-[#002D5A] font-bold' : 'text-slate-700'
+                        }`}
+                      >
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold">{ord.name || ord.number}</span>
+                          <span
+                            className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                              statusInfo.isCurrentInEffect
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {statusInfo.isCurrentInEffect ? 'Em Vigor' : 'Já Executado'}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 mt-0.5">
+                          {statusInfo.periodText} • SEI: {ord.seiProcess}
                         </span>
-                      </div>
-                      <span className="text-[10px] text-slate-500 mt-0.5">
-                        {new Date(ord.startDate).toLocaleDateString('pt-BR')} a{' '}
-                        {new Date(ord.endDate).toLocaleDateString('pt-BR')} • SEI: {ord.seiProcess}
-                      </span>
-                    </button>
-                  ))}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>

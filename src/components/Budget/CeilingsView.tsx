@@ -11,6 +11,7 @@ import {
   RotateCcw,
   Sparkles,
   FileCheck2,
+  Star,
 } from 'lucide-react';
 import { CommandBudget, CommandUnit, OrdinancePeriod, OperationLaunch, User } from '../../types';
 import { formatCurrencyBRL, formatInteger, formatAccountingNumber, parseBRLInput, formatDateBRL } from '../../utils/formatters';
@@ -18,6 +19,7 @@ import {
   normalizeCommandName,
   sortCommandsByOfficialOrder,
 } from '../../utils/commandUtils';
+import { getOrdinanceStatusInfo } from '../../utils/ordinancePeriodUtils';
 
 interface CeilingsViewProps {
   ordinance: OrdinancePeriod;
@@ -293,9 +295,29 @@ export function CeilingsView({
               <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2.5">
                 <span>{ordinance.number || ordinance.name || 'PORTARIA Nº 127/2026 – GCG'}</span>
               </h2>
-              <span className="text-xs font-bold text-[#002D5A] bg-sky-50 px-3 py-1 rounded-full border border-[#7EC2E8]">
-                {ordinance.status || 'VIGENTE'}
-              </span>
+              {(() => {
+                const statusInfo = getOrdinanceStatusInfo(ordinance);
+                if (statusInfo.isCurrentInEffect) {
+                  return (
+                    <span className="text-xs font-bold text-[#002D5A] bg-sky-50 px-3 py-1 rounded-full border border-[#7EC2E8] inline-flex items-center gap-1">
+                      <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                      <span>Em Vigor</span>
+                    </span>
+                  );
+                }
+                if (statusInfo.isExpired) {
+                  return (
+                    <span className="text-xs font-bold text-amber-800 bg-amber-50 px-3 py-1 rounded-full border border-amber-300 inline-flex items-center gap-1">
+                      <span>Já Executado no período {statusInfo.periodText}</span>
+                    </span>
+                  );
+                }
+                return (
+                  <span className="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1 rounded-full border border-slate-300">
+                    {statusInfo.badgeLabel}
+                  </span>
+                );
+              })()}
               {isDirty && (
                 <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-300 animate-pulse">
                   ● Alterações não salvas

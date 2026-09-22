@@ -27,6 +27,11 @@ import {
   sortCommandsByOfficialOrder,
   getCommandOrderIndex,
 } from '../utils/commandUtils';
+import {
+  syncOrdinancesWithPeriodDates,
+  sortOrdinancesWithInEffectFirst,
+  isOrdinancePeriodExpired,
+} from '../utils/ordinancePeriodUtils';
 
 const STORAGE_KEYS = {
   USERS: 'cpi_pmma_prod_clean_users',
@@ -631,7 +636,7 @@ class StorageService {
   // Ordinances
   getOrdinances(): OrdinancePeriod[] {
     const list = this.get<OrdinancePeriod[]>(STORAGE_KEYS.ORDINANCES, INITIAL_ORDINANCES);
-    const updated = [...list];
+    let updated = [...list];
     let changed = false;
 
     // Ensure all standard initial ordinances (especially ord-127-2026 and ord-122-2026) are present
@@ -669,13 +674,33 @@ class StorageService {
               endDate: '2026-10-26',
               unitValueJoe: 350.0,
               monthlyIndividualLimit: 12,
-              status: current.status || 'VIGENTE',
+              status: 'VIGENTE',
               notes: current.notes || initOrd.notes,
+            };
+            changed = true;
+          }
+        } else if (initOrd.id === 'ord-122-2026' || initOrd.number?.includes('122')) {
+          // Portaria 122/2026 had period up to 2026-09-21, so it is already executed (ENCERRADA)
+          const current = updated[idx];
+          if (current.status !== 'ENCERRADA') {
+            updated[idx] = {
+              ...current,
+              status: 'ENCERRADA',
+              endDate: current.endDate || '2026-09-21',
             };
             changed = true;
           }
         }
       }
+    }
+
+    // Automatically synchronize statuses according to expiration dates
+    const syncResult = syncOrdinancesWithPeriodDates(updated);
+    if (syncResult.changed) {
+      updated = syncResult.updatedOrdinances;
+      changed = true;
+    } else {
+      updated = sortOrdinancesWithInEffectFirst(updated);
     }
 
     if (changed) {
@@ -687,13 +712,21 @@ class StorageService {
   getActiveOrdinance(): OrdinancePeriod {
     const ordinances = this.getOrdinances();
     const savedId = this.get<string | null>(STORAGE_KEYS.ACTIVE_ORDINANCE_ID, null);
-    const active = savedId ? ordinances.find((o) => o.id === savedId) : null;
-    return (
-      active ||
-      ordinances.find((o) => o.status === 'VIGENTE') ||
-      ordinances.find((o) => o.id === 'ord-127-2026' || o.number?.includes('127')) ||
-      ordinances[0]
-    );
+    
+    // In-effect ordinance is always sorted to the front
+    const inEffect = ordinances.find(
+      (o) => o.status === 'VIGENTE' && !isOrdinancePeriodExpired(o)
+    ) || ordinances[0];
+
+    if (savedId) {
+      const selected = ordinances.find((o) => o.id === savedId);
+      if (selected) {
+        return selected;
+      }
+    }
+
+    // By default, the in-effect ordinance is always in front and displayed
+    return inEffect;
   }
 
   setActiveOrdinanceId(id: string): void {

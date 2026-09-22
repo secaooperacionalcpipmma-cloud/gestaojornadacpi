@@ -10,8 +10,13 @@ import {
   FileText,
   Eye,
   Info,
+  Star,
 } from 'lucide-react';
 import { OrdinancePeriod, OperationLaunch, User } from '../../types';
+import {
+  getOrdinanceStatusInfo,
+  sortOrdinancesWithInEffectFirst,
+} from '../../utils/ordinancePeriodUtils';
 
 interface PeriodsViewProps {
   ordinances: OrdinancePeriod[];
@@ -114,23 +119,28 @@ export function PeriodsView({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {ordinances.map((ord) => {
+              {sortOrdinancesWithInEffectFirst(ordinances).map((ord) => {
                 const count = operations.filter((o) => o.ordinanceId === ord.id).length;
-                const isActive = ord.status === 'VIGENTE';
+                const statusInfo = getOrdinanceStatusInfo(ord);
                 return (
                   <tr key={ord.id} className="hover:bg-sky-50/30 transition-colors">
                     <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                         <span className="font-bold text-slate-900">
                           {ord.name || ord.number}
                         </span>
-                        {isActive ? (
-                          <span className="bg-sky-50 text-[#002D5A] border border-[#7EC2E8] text-[11px] font-bold px-2.5 py-0.5 rounded-full">
-                            Em Vigor
+                        {statusInfo.isCurrentInEffect ? (
+                          <span className="bg-sky-50 text-[#002D5A] border border-[#7EC2E8] text-[11px] font-bold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 shrink-0 w-fit">
+                            <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
+                            <span>Em Vigor</span>
+                          </span>
+                        ) : statusInfo.isExpired ? (
+                          <span className="bg-amber-50 text-amber-800 border border-amber-200 text-[10.5px] font-semibold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 shrink-0 w-fit">
+                            <span>Já Executado no período {statusInfo.periodText}</span>
                           </span>
                         ) : (
-                          <span className="bg-slate-100 text-slate-600 text-[10px] font-semibold px-2 py-0.5 rounded-md">
-                            {ord.status || 'Histórica'}
+                          <span className="bg-slate-100 text-slate-600 text-[10px] font-semibold px-2 py-0.5 rounded-md shrink-0 w-fit">
+                            {statusInfo.badgeLabel}
                           </span>
                         )}
                       </div>
@@ -142,7 +152,7 @@ export function PeriodsView({
                       )}
                     </td>
                     <td className="py-3.5 px-4 text-slate-600 font-medium">
-                      {formatDate(ord.startDate)} a {formatDate(ord.endDate)}
+                      {statusInfo.periodText}
                     </td>
                     <td className="py-3.5 px-4 text-right text-slate-900 font-bold font-mono">
                       R$ {ord.unitValueJoe.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -154,13 +164,13 @@ export function PeriodsView({
                       <button
                         onClick={() => onSelectPeriod(ord.id)}
                         className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 mx-auto ${
-                          isActive
+                          statusInfo.isCurrentInEffect
                             ? 'bg-[#002D5A] text-white shadow-xs'
                             : 'bg-slate-100 hover:bg-[#002D5A] text-slate-700 hover:text-white'
                         }`}
                       >
                         <Eye className="w-3.5 h-3.5" />
-                        <span>{isActive ? 'Ativa' : 'Selecionar'}</span>
+                        <span>{statusInfo.isCurrentInEffect ? 'Em Vigor' : 'Consultar'}</span>
                       </button>
                     </td>
                   </tr>

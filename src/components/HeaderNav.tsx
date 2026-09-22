@@ -27,6 +27,11 @@ import { CommandBadge } from './common/CommandBadge';
 import { googleDriveBackupService } from '../services/googleDriveBackupService';
 import { supabaseService, SupabaseSyncStatus } from '../services/supabaseService';
 import { Database } from 'lucide-react';
+import {
+  getOrdinanceStatusInfo,
+  sortOrdinancesWithInEffectFirst,
+  isOrdinancePeriodExpired,
+} from '../utils/ordinancePeriodUtils';
 
 interface HeaderNavProps {
   activeTab: string;
@@ -97,8 +102,13 @@ export function HeaderNav({
       : []),
   ];
 
-  const inEffectOrdinance = ordinances.find((o) => o.status === 'VIGENTE') || ordinances[0];
-  const isViewingPastOrdinance = activeOrdinance.id !== inEffectOrdinance?.id;
+  const inEffectOrdinance =
+    ordinances.find((o) => o.status === 'VIGENTE' && !isOrdinancePeriodExpired(o)) ||
+    ordinances[0];
+  const activeStatusInfo = getOrdinanceStatusInfo(activeOrdinance);
+  const isViewingPastOrdinance =
+    activeOrdinance.id !== inEffectOrdinance?.id || activeStatusInfo.isExpired;
+  const sortedOrdinances = sortOrdinancesWithInEffectFirst(ordinances);
 
   // Helper for subtitle & title in navy blue banner
   const getBannerInfo = () => {
@@ -376,11 +386,14 @@ export function HeaderNav({
                   backgroundSize: '1rem',
                 }}
               >
-                {ordinances.map((ord) => (
-                  <option key={ord.id} value={ord.id} className="bg-slate-900 text-white py-1">
-                    {ord.name || ord.number} {ord.status === 'VIGENTE' ? '⭐ (Em Vigor)' : '(Histórico)'}
-                  </option>
-                ))}
+                {sortedOrdinances.map((ord) => {
+                  const info = getOrdinanceStatusInfo(ord);
+                  return (
+                    <option key={ord.id} value={ord.id} className="bg-slate-900 text-white py-1">
+                      {ord.name || ord.number} {info.selectorLabel}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
@@ -501,13 +514,17 @@ export function HeaderNav({
             <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
               {banner.title}
             </h2>
-            {isViewingPastOrdinance ? (
+            {activeStatusInfo.isExpired ? (
               <span className="bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[11px] font-bold px-2.5 py-0.5 rounded-full">
-                Portaria Histórica Selecionada
+                {activeStatusInfo.badgeLabel}
+              </span>
+            ) : activeStatusInfo.isCurrentInEffect ? (
+              <span className="bg-[#7EC2E8]/20 text-[#7EC2E8] border border-[#7EC2E8]/30 text-[11px] font-bold px-2.5 py-0.5 rounded-full">
+                ⭐ Portaria em Vigor
               </span>
             ) : (
-              <span className="bg-[#7EC2E8]/20 text-[#7EC2E8] border border-[#7EC2E8]/30 text-[11px] font-bold px-2.5 py-0.5 rounded-full">
-                Portaria em Vigor
+              <span className="bg-slate-200/20 text-slate-300 border border-slate-400/40 text-[11px] font-bold px-2.5 py-0.5 rounded-full">
+                {activeStatusInfo.badgeLabel}
               </span>
             )}
           </div>
