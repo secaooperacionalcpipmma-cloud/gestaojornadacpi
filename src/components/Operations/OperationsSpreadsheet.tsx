@@ -408,6 +408,7 @@ export const OperationsSpreadsheet: React.FC<OperationsSpreadsheetProps> = ({
                     JUSTIFICATIVA DA CRIAÇÃO DA JOE
                   </th>
                   <th className="py-3 px-3 text-center border-r border-[#00204A]/50">ORDEM DE SERV./OP.</th>
+                  <th className="py-3 px-3 text-center border-r border-[#00204A]/50 whitespace-nowrap">PROCESSO SEI</th>
                   <th className="py-3 px-3 border-r border-[#00204A]/50 min-w-[180px]">NOME DO EVENTO</th>
                   <th className="py-3 px-3 text-center border-r border-[#00204A]/50">DATA</th>
                   <th className="py-3 px-3 text-center border-r border-[#00204A]/50">HORÁRIO</th>
@@ -421,7 +422,7 @@ export const OperationsSpreadsheet: React.FC<OperationsSpreadsheetProps> = ({
               <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
                 {filteredOperations.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="py-8 text-center text-slate-500">
+                    <td colSpan={13} className="py-8 text-center text-slate-500">
                       Nenhum lançamento encontrado para os filtros selecionados.
                     </td>
                   </tr>
@@ -444,6 +445,9 @@ export const OperationsSpreadsheet: React.FC<OperationsSpreadsheetProps> = ({
                         <span className="font-mono text-[11px] bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
                           {op.orderType === 'ORDEM_DE_OPERACAO' ? 'OO' : 'OS'} {op.orderNumber}
                         </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-center text-slate-700 border-r border-slate-100 whitespace-nowrap font-mono text-[11px]">
+                        {op.seiProcessNumber || '-'}
                       </td>
                       <td className="py-2.5 px-3 text-slate-900 font-bold border-r border-slate-100 whitespace-nowrap">
                         {op.eventName}
@@ -538,7 +542,7 @@ export const OperationsSpreadsheet: React.FC<OperationsSpreadsheetProps> = ({
               {/* Exact PMMA Footer matching the official spreadsheet */}
               <tfoot>
                 <tr className="bg-slate-50 font-bold text-slate-900 border-t-2 border-slate-200 text-[11px]">
-                  <td colSpan={7} className="py-3 px-3 text-right uppercase tracking-wider text-slate-600">
+                  <td colSpan={8} className="py-3 px-3 text-right uppercase tracking-wider text-slate-600">
                     TOTAL DA UNIDADE / FILTRO ({filteredOperations.length} Lançamentos):
                   </td>
                   <td className="py-3 px-3 text-center text-[#00204A] font-mono text-xs font-black">

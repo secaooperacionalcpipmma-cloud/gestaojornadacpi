@@ -157,6 +157,13 @@ export function ReportsView({
             : '-',
       },
       {
+        id: 'seiProcessNumber',
+        label: 'Processo SEI',
+        tableHeader: 'PROCESSO SEI',
+        defaultSelected: true,
+        getter: (op) => op.seiProcessNumber || '-',
+      },
+      {
         id: 'eventName',
         label: 'Nome do Evento',
         tableHeader: 'NOME DO EVENTO',
@@ -216,13 +223,6 @@ export function ReportsView({
         tableHeader: 'PORTARIA',
         defaultSelected: false,
         getter: (op, ord) => ord?.name || ord?.number || op.ordinanceId,
-      },
-      {
-        id: 'seiProcessNumber',
-        label: 'Processo SEI',
-        tableHeader: 'PROCESSO SEI',
-        defaultSelected: false,
-        getter: (op) => op.seiProcessNumber || '-',
       },
       {
         id: 'status',

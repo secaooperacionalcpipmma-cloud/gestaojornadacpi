@@ -294,6 +294,13 @@ export const excelService = {
         width: 22,
         align: 'center' as const,
       },
+      {
+        id: 'seiProcessNumber',
+        label: 'PROCESSO SEI',
+        getter: (op: OperationLaunch) => op.seiProcessNumber || '-',
+        width: 22,
+        align: 'center' as const,
+      },
       { id: 'eventName', label: 'NOME DO EVENTO', getter: (op: OperationLaunch) => op.eventName || '', width: 28, align: 'center' as const },
       {
         id: 'date',

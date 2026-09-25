@@ -567,6 +567,13 @@ export const pdfService = {
           halign: 'center' as const,
           width: 22,
         },
+        {
+          id: 'seiProcessNumber',
+          label: 'PROCESSO SEI',
+          getter: (op: OperationLaunch) => op.seiProcessNumber || '-',
+          halign: 'center' as const,
+          width: 24,
+        },
         { id: 'eventName', label: 'NOME DO EVENTO', getter: (op: OperationLaunch) => op.eventName || '', halign: 'center' as const, width: 34 },
         {
           id: 'date',

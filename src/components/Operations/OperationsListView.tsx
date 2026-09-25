@@ -511,7 +511,8 @@ export function OperationsListView({
                 <th className="py-3.5 px-4">CPA/I</th>
                 <th className="py-3.5 px-4">Unidade</th>
                 <th className="py-3.5 px-4">Evento / Operação</th>
-                <th className="py-3.5 px-4">Ordem / Processo SEI</th>
+                <th className="py-3.5 px-4">Ordem de Serviço/Op.</th>
+                <th className="py-3.5 px-4">Processo SEI</th>
                 <th className="py-3.5 px-4">Data do Serviço</th>
                 <th className="py-3.5 px-4">Lançado Em (Dia / Hora)</th>
                 <th className="py-3.5 px-4 text-center">Efetivo (JOEs)</th>
@@ -523,7 +524,7 @@ export function OperationsListView({
             <tbody className="divide-y divide-slate-100">
               {filteredOperations.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-14 px-4 text-center">
+                  <td colSpan={12} className="py-14 px-4 text-center">
                     <div className="max-w-md mx-auto flex flex-col items-center">
                       <div className="w-14 h-14 rounded-2xl bg-sky-50 border border-sky-200/80 flex items-center justify-center text-[#002D5A] mb-3 shadow-xs">
                         <FileSpreadsheet className="w-7 h-7 text-[#002D5A]" />
@@ -594,11 +595,13 @@ export function OperationsListView({
                           </div>
                         )}
                       </td>
-                      <td className="py-3.5 px-4">
-                        <div className="font-semibold text-slate-800 text-xs">{op.orderNumber}</div>
-                        <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-                          {op.seiProcessNumber}
-                        </div>
+                      <td className="py-3.5 px-4 font-semibold text-slate-800 text-xs whitespace-nowrap">
+                        {op.orderNumber || '-'}
+                      </td>
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <span className="inline-block px-2.5 py-1 rounded-md font-mono text-xs font-semibold bg-slate-100 text-slate-800 border border-slate-200">
+                          {op.seiProcessNumber || '-'}
+                        </span>
                       </td>
                       <td className="py-3.5 px-4 text-slate-700">
                         <div className="font-bold text-slate-900">{formatDateBRL(op.serviceDate)}</div>
@@ -651,7 +654,7 @@ export function OperationsListView({
               <tfoot className="bg-slate-50 border-t-2 border-slate-200 font-bold text-slate-900">
                 <tr>
                   <td className="py-3.5 px-3"></td>
-                  <td colSpan={6} className="py-3.5 px-4 text-slate-800 uppercase text-xs tracking-wider">
+                  <td colSpan={7} className="py-3.5 px-4 text-slate-800 uppercase text-xs tracking-wider">
                     Total Geral Filtrado ({filteredOperations.length} registros)
                   </td>
                   <td className="py-3.5 px-4 text-center font-mono text-sm font-extrabold text-slate-900">
