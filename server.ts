@@ -16,6 +16,18 @@ const port = 3000;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Full CORS support for cross-origin and iframe requests in AI Studio
+app.use((req: Request, res: Response, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  next();
+});
+
 // Initialize GoogleGenAI SDK according to system guidelines
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -52,7 +64,7 @@ const COMMAND_SUBUNITS_MAP: Record<string, string[]> = {
 };
 
 // API Endpoint for OCR / Multimodal Extraction of JOE solicitations
-app.post('/api/ocr-joe-print', async (req: Request, res: Response): Promise<void> => {
+app.post(['/api/ocr-joe-print', '/api/ocr-joe-print/', '*/ocr-joe-print'], async (req: Request, res: Response): Promise<void> => {
   try {
     const { imageBase64, mimeType = 'image/png', unitValueJoe = 350, ordinanceNumber = '127/2026' } = req.body;
 
@@ -119,7 +131,13 @@ REGRAS DE EXTRAÇÃO:
 
     const userPrompt = `Analise atentamente a imagem da solicitação de JOE anexada e extraia todos os campos requeridos em formato JSON estrito conforme o schema.`;
 
-    const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+    const candidateModels = [
+      'gemini-3.8-flash',
+      'gemini-3.5-flash',
+      'gemini-flash-latest',
+      'gemini-3.1-flash-lite',
+      'gemini-2.5-flash-lite',
+    ];
     let response: any = null;
     let lastError: any = null;
 
