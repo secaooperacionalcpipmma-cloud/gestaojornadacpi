@@ -18,9 +18,11 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Full CORS support for cross-origin and iframe requests in AI Studio
 app.use((req: Request, res: Response, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin || '*';
+  res.header('Access-Control-Allow-Origin', origin);
+  res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cookie');
   if (req.method === 'OPTIONS') {
     res.sendStatus(200);
     return;
@@ -132,11 +134,10 @@ REGRAS DE EXTRAÇÃO:
     const userPrompt = `Analise atentamente a imagem da solicitação de JOE anexada e extraia todos os campos requeridos em formato JSON estrito conforme o schema.`;
 
     const candidateModels = [
-      'gemini-3.8-flash',
       'gemini-3.5-flash',
-      'gemini-flash-latest',
       'gemini-3.1-flash-lite',
-      'gemini-2.5-flash-lite',
+      'gemini-3.8-flash',
+      'gemini-flash-latest',
     ];
     let response: any = null;
     let lastError: any = null;

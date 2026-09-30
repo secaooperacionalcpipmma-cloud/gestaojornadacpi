@@ -83,12 +83,14 @@ class OcrJoeService {
     const ordinanceNumber = options?.ordinanceNumber || '127/2026';
     const mimeType = options?.mimeType || 'image/png';
 
-    // 1. Tentar chamar a rota de backend /api/ocr-joe-print
+    // 1. Tentar chamar a rota de backend /api/ocr-joe-print com credenciais do AI Studio
     try {
-      const response = await fetch('/api/ocr-joe-print', {
+      let response = await fetch('/api/ocr-joe-print', {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
         body: JSON.stringify({
           imageBase64,
@@ -98,15 +100,45 @@ class OcrJoeService {
         }),
       });
 
-      if (response.ok) {
-        const result = await response.json();
-        if (result && result.success && result.data) {
-          return result;
-        }
+      // Se der 404 no caminho absoluto, tentar caminho relativo
+      if (response.status === 404) {
+        response = await fetch('./api/ocr-joe-print', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify({
+            imageBase64,
+            mimeType,
+            unitValueJoe,
+            ordinanceNumber,
+          }),
+        });
       }
-      console.warn(`[OCR] Backend /api/ocr-joe-print status ${response.status}. Ativando fallback resiliente.`);
-    } catch (fetchErr) {
-      console.warn('[OCR] Erro de rede na rota /api/ocr-joe-print. Ativando fallback resiliente:', fetchErr);
+
+      const result = await response.json().catch(() => null);
+
+      if (response.ok && result && result.success && result.data) {
+        return result;
+      }
+
+      if (result && (result.error || result.message)) {
+        return {
+          success: false,
+          error: result.error || result.message,
+        };
+      }
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: `Erro no servidor (${response.status}): ${response.statusText || 'Não foi possível processar a imagem.'}`,
+        };
+      }
+    } catch (fetchErr: any) {
+      console.warn('[OCR] Erro de rede na rota /api/ocr-joe-print:', fetchErr);
     }
 
     // 2. Fallback resiliente: Execução direta com a SDK Gemini
