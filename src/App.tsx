@@ -423,9 +423,11 @@ export default function App() {
             operations={operations}
             commands={commands}
             ordinance={activeOrdinance}
+            currentUser={currentUser}
             onEdit={handleEditOperation}
             onDelete={handleDeleteOperation}
             onDeleteBatch={handleDeleteOperationsBatch}
+            onSaveOperation={handleSaveOperation}
             initialCommandFilter={listCpaFilter}
             onNavigateToReports={() => setActiveTab('RELATORIOS')}
             onNavigateToCreate={() => {

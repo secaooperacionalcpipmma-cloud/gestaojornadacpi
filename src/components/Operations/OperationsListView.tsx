@@ -17,8 +17,10 @@ import {
   Square,
   AlertTriangle,
   X,
+  Camera,
+  Sparkles,
 } from 'lucide-react';
-import { CommandUnit, OperationLaunch, OrdinancePeriod } from '../../types';
+import { CommandUnit, OperationLaunch, OrdinancePeriod, User } from '../../types';
 import { formatCurrencyBRL, formatInteger, formatDateBRL, formatDateTimeBRL } from '../../utils/formatters';
 import {
   normalizeCommandName,
@@ -26,14 +28,19 @@ import {
 } from '../../utils/commandUtils';
 import { getOrdinanceStatusInfo } from '../../utils/ordinancePeriodUtils';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
+import { PrintCaptureModal } from './PrintCaptureModal';
 
 interface OperationsListViewProps {
   operations: OperationLaunch[];
   commands: CommandUnit[];
   ordinance: OrdinancePeriod;
+  currentUser: User;
   onEdit: (operation: OperationLaunch) => void;
   onDelete: (operationId: string) => void;
   onDeleteBatch?: (operationIds: string[]) => void | Promise<void>;
+  onSaveOperation?: (
+    op: OperationLaunch
+  ) => Promise<{ success: boolean; syncedWithCloud: boolean; dbError?: string; message?: string } | void> | void;
   initialCommandFilter?: string;
   onNavigateToReports?: () => void;
   onNavigateToCreate?: () => void;
@@ -44,9 +51,11 @@ export function OperationsListView({
   operations,
   commands,
   ordinance,
+  currentUser,
   onEdit,
   onDelete,
   onDeleteBatch,
+  onSaveOperation,
   initialCommandFilter,
   onNavigateToReports,
   onNavigateToCreate,
@@ -58,6 +67,7 @@ export function OperationsListView({
   const [endDate, setEndDate] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [isPrintCaptureOpen, setIsPrintCaptureOpen] = useState<boolean>(false);
 
   // Status info for active ordinance
   const statusInfo = getOrdinanceStatusInfo(ordinance);
@@ -478,6 +488,16 @@ export function OperationsListView({
               </button>
             )}
 
+            <button
+              type="button"
+              onClick={() => setIsPrintCaptureOpen(true)}
+              className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 hover:from-emerald-700 hover:to-teal-900 text-white transition-all shadow-md flex items-center gap-1.5 cursor-pointer active:scale-95"
+              title="Capturar solicitação de JOE através de print/imagem (OCR inteligente com IA)"
+            >
+              <Camera className="w-4 h-4 text-emerald-200" />
+              <span>Capturar por Print (IA)</span>
+            </button>
+
             {onNavigateToReports && (
               <button
                 type="button"
@@ -545,16 +565,26 @@ export function OperationsListView({
                           </>
                         )}
                       </p>
-                      {onNavigateToCreate && (
+                      <div className="flex flex-wrap items-center justify-center gap-2.5">
+                        {onNavigateToCreate && (
+                          <button
+                            type="button"
+                            onClick={onNavigateToCreate}
+                            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#002D5A] hover:bg-[#001F3F] text-white text-xs font-bold shadow-md cursor-pointer transition-all active:scale-95"
+                          >
+                            <Plus className="w-4 h-4 text-[#7EC2E8]" />
+                            <span>Lançar Manualmente</span>
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={onNavigateToCreate}
-                          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#002D5A] hover:bg-[#001F3F] text-white text-xs font-bold shadow-md cursor-pointer transition-all active:scale-95"
+                          onClick={() => setIsPrintCaptureOpen(true)}
+                          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white text-xs font-bold shadow-md cursor-pointer transition-all active:scale-95"
                         >
-                          <Plus className="w-4 h-4 text-[#7EC2E8]" />
-                          <span>Lançar Nova JOE nesta Portaria</span>
+                          <Camera className="w-4 h-4 text-emerald-200" />
+                          <span>Capturar Solicitação via Print (IA)</span>
                         </button>
-                      )}
+                      </div>
                     </div>
                   </td>
                 </tr>
@@ -689,6 +719,16 @@ export function OperationsListView({
         operation={deleteModalState.operation}
         operations={deleteModalState.operations}
         isDeleting={isDeleting}
+      />
+
+      {/* Modal for capturing JOE from screenshot/print with AI OCR */}
+      <PrintCaptureModal
+        isOpen={isPrintCaptureOpen}
+        onClose={() => setIsPrintCaptureOpen(false)}
+        ordinance={ordinance}
+        commands={commands}
+        currentUser={currentUser}
+        onSaveOperation={onSaveOperation || (async () => {})}
       />
     </div>
   );

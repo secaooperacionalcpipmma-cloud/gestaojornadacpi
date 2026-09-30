@@ -15,6 +15,8 @@ import {
   RefreshCw,
   Database,
   ArrowRight,
+  Camera,
+  Sparkles,
 } from 'lucide-react';
 import { CommandUnit, OrdinancePeriod, OperationLaunch, User } from '../../types';
 import { formatCurrencyBRL, formatInteger } from '../../utils/formatters';
@@ -22,6 +24,7 @@ import {
   normalizeCommandName,
   sortCommandsByOfficialOrder,
 } from '../../utils/commandUtils';
+import { PrintCaptureModal } from './PrintCaptureModal';
 
 interface CreateJoeViewProps {
   commands: CommandUnit[];
@@ -78,6 +81,7 @@ export function CreateJoeView({
     operationToEdit?.authorizeExcess || false
   );
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isPrintCaptureOpen, setIsPrintCaptureOpen] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<{
     type: 'success' | 'error';
     text: string;
@@ -181,18 +185,30 @@ export function CreateJoeView({
 
   return (
     <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200/80 shadow-sm max-w-5xl">
-      <div className="flex items-center gap-3 pb-5 border-b border-slate-100 mb-6">
-        <div className="p-2.5 rounded-xl bg-sky-50 text-[#002D5A] border border-[#7EC2E8]/40">
-          <FileSpreadsheet className="w-5 h-5 text-[#002D5A]" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-slate-100 mb-6">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-sky-50 text-[#002D5A] border border-[#7EC2E8]/40">
+            <FileSpreadsheet className="w-5 h-5 text-[#002D5A]" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">
+              {operationToEdit ? 'Editar Lançamento de JOE' : 'Formulário de Lançamento de JOE'}
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Portaria ativa: <strong className="text-slate-800">{ordinance.number}</strong> · Valor unitário: <strong className="text-[#002D5A]">{formatCurrencyBRL(ordinance.unitValueJoe)}</strong>
+            </p>
+          </div>
         </div>
-        <div>
-          <h3 className="text-lg font-bold text-slate-900">
-            {operationToEdit ? 'Editar Lançamento de JOE' : 'Formulário de Lançamento de JOE'}
-          </h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Portaria ativa: <strong className="text-slate-800">{ordinance.number}</strong> · Valor unitário: <strong className="text-[#002D5A]">{formatCurrencyBRL(ordinance.unitValueJoe)}</strong>
-          </p>
-        </div>
+
+        <button
+          type="button"
+          onClick={() => setIsPrintCaptureOpen(true)}
+          className="self-start sm:self-auto px-4 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+          title="Capturar informações a partir do print da solicitação de JOE"
+        >
+          <Camera className="w-4 h-4 text-emerald-200" />
+          <span>Capturar via Print (IA)</span>
+        </button>
       </div>
 
       {/* Top Status Message if present */}
@@ -539,6 +555,19 @@ export function CreateJoeView({
           </button>
         </div>
       </form>
+
+      {/* Modal for capturing JOE from screenshot/print with AI OCR */}
+      <PrintCaptureModal
+        isOpen={isPrintCaptureOpen}
+        onClose={() => setIsPrintCaptureOpen(false)}
+        ordinance={ordinance}
+        commands={commands}
+        currentUser={currentUser}
+        onSaveOperation={async (newOp) => {
+          await onSave(newOp);
+          onCancel();
+        }}
+      />
     </div>
   );
 }
