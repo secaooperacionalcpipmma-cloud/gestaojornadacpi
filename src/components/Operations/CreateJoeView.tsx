@@ -17,13 +17,9 @@ import {
   ArrowRight,
   Camera,
   Sparkles,
-  CalendarRange,
-  Layers,
-  ArrowUpDown,
-  CalendarDays,
 } from 'lucide-react';
 import { CommandUnit, OrdinancePeriod, OperationLaunch, User } from '../../types';
-import { formatCurrencyBRL, formatInteger, formatDateBRL } from '../../utils/formatters';
+import { formatCurrencyBRL, formatInteger } from '../../utils/formatters';
 import {
   normalizeCommandName,
   sortCommandsByOfficialOrder,
@@ -66,20 +62,9 @@ export function CreateJoeView({
   const [nomeEvento, setNomeEvento] = useState<string>(
     operationToEdit?.eventName || ''
   );
-
-  // Date selection state: 'SINGLE' (Data única) | 'RANGE' (Intervalo de datas, ex: 01/10 a 03/10)
-  const [dateMode, setDateMode] = useState<'SINGLE' | 'RANGE'>('SINGLE');
   const [dataEvento, setDataEvento] = useState<string>(
     operationToEdit?.serviceDate || new Date().toISOString().split('T')[0]
   );
-  const [dataFimEvento, setDataFimEvento] = useState<string>(
-    operationToEdit?.serviceDate || new Date().toISOString().split('T')[0]
-  );
-  // Calculation mode for interval: 'DAILY_PER_DAY' (ex: 5 JOEs por dia × 3 dias = 15 JOEs) | 'TOTAL_PERIOD' (5 JOEs no total)
-  const [rangeEffectiveMode, setRangeEffectiveMode] = useState<'DAILY_PER_DAY' | 'TOTAL_PERIOD'>('DAILY_PER_DAY');
-  // Persistence mode in DB: create individual row for each day (recommended for police roster) or single consolidated row
-  const [saveAsDailyEntries, setSaveAsDailyEntries] = useState<boolean>(true);
-
   const [horario, setHorario] = useState<string>(
     operationToEdit?.startTime || '20h às 02h'
   );
@@ -118,170 +103,68 @@ export function CreateJoeView({
     }
   }, [cpa]);
 
-  // Helper to generate all ISO date strings between start and end inclusive
-  const getDatesInRange = (startStr: string, endStr: string): string[] => {
-    if (!startStr || !endStr) return [startStr || new Date().toISOString().split('T')[0]];
-    const start = new Date(startStr + 'T00:00:00');
-    const end = new Date(endStr + 'T00:00:00');
-    if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) {
-      return [startStr];
-    }
-    const dates: string[] = [];
-    const current = new Date(start);
-    let count = 0;
-    while (current <= end && count < 60) {
-      dates.push(current.toISOString().split('T')[0]);
-      current.setDate(current.getDate() + 1);
-      count++;
-    }
-    return dates;
-  };
-
-  const rangeDates = dateMode === 'RANGE' ? getDatesInRange(dataEvento, dataFimEvento) : [dataEvento];
-  const countDays = Math.max(1, rangeDates.length);
-
-  // Effective and accounting calculations
-  const numEfetivo = Math.max(1, Number(efetivo) || 1);
-  const numValorUnit = Number(valorUnitario) > 0 ? Number(valorUnitario) : (ordinance.unitValueJoe || 350);
-
-  const totalCalculatedJoes =
-    dateMode === 'RANGE' && rangeEffectiveMode === 'DAILY_PER_DAY'
-      ? numEfetivo * countDays
-      : numEfetivo;
-
-  const totalCalculatedValue = totalCalculatedJoes * numValorUnit;
-
-  // Preset shortcut helper for common date ranges
-  const applyRangeShortcut = (days: number) => {
-    setDateMode('RANGE');
-    const start = new Date(dataEvento ? dataEvento + 'T00:00:00' : new Date());
-    const end = new Date(start);
-    end.setDate(end.getDate() + (days - 1));
-    setDataFimEvento(end.toISOString().split('T')[0]);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cpa) {
-      setStatusMessage({ type: 'error', text: 'Selecione o Comando (CPA/I).' });
+      alert('Por favor, selecione o CPA/I.');
       return;
     }
     if (!unidade) {
-      setStatusMessage({ type: 'error', text: 'Selecione a Unidade Operacional.' });
+      alert('Por favor, selecione a Unidade Operacional.');
       return;
     }
     if (!nomeEvento.trim()) {
-      setStatusMessage({ type: 'error', text: 'Informe o nome do evento / operação.' });
-      return;
-    }
-
-    if (dateMode === 'RANGE' && dataFimEvento < dataEvento) {
-      setStatusMessage({
-        type: 'error',
-        text: 'Data de término inválida',
-        details: 'A data final do intervalo deve ser igual ou posterior à data inicial.',
-      });
+      alert('Por favor, informe o nome do evento / operação.');
       return;
     }
 
     const normCpa = normalizeCommandName(cpa);
+    const numEfetivo = Math.max(1, Number(efetivo) || 1);
+    const numValorUnit = Number(valorUnitario) > 0 ? Number(valorUnitario) : (ordinance.unitValueJoe || 350);
+    const totalVal = numEfetivo * numValorUnit;
+
+    const opData: OperationLaunch = {
+      id: operationToEdit?.id || `op-${Date.now()}`,
+      launchNumber: operationToEdit?.launchNumber || ordemServico || `${Math.floor(10000 + Math.random() * 90000)}`,
+      commandId: normCpa,
+      subUnit: unidade,
+      ordinanceId: ordinance.id || 'ord-127-2026',
+      seiProcessNumber: processoSei.trim() || '2026.190110.00000',
+      orderNumber: ordemServico.trim() || `OS nº ${Math.floor(100 + Math.random() * 900)}/2026-${normCpa}`,
+      eventName: nomeEvento.trim(),
+      serviceDate: dataEvento || new Date().toISOString().split('T')[0],
+      startTime: horario.trim() || '20h às 02h',
+      officersCount: numEfetivo,
+      joesPerOfficer: 1,
+      unitValue: numValorUnit,
+      totalValue: totalVal,
+      status: operationToEdit?.status || 'APROVADO',
+      serviceOrderLink: '',
+      justification: justificativa.trim(),
+      authorizeExcess: autorizarExcedente,
+      createdBy: currentUser.name,
+      createdAt: operationToEdit?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
 
     setIsSubmitting(true);
     setStatusMessage(null);
 
     try {
-      if (dateMode === 'RANGE' && countDays > 1 && saveAsDailyEntries) {
-        // MULTI-DAY LAUNCH: Create an entry for each date in the interval into the database
-        const createdOps: OperationLaunch[] = [];
+      const result = await onSave(opData);
 
-        for (let i = 0; i < rangeDates.length; i++) {
-          const dayDate = rangeDates[i];
-          const dayOpData: OperationLaunch = {
-            id: `op-${Date.now()}-${i}-${Math.floor(Math.random() * 1000)}`,
-            launchNumber: ordemServico.trim()
-              ? `${ordemServico.trim()} (Dia ${i + 1}/${countDays})`
-              : `${Math.floor(10000 + Math.random() * 90000)}`,
-            commandId: normCpa,
-            subUnit: unidade,
-            ordinanceId: ordinance.id || 'ord-127-2026',
-            seiProcessNumber: processoSei.trim() || '2026.190110.00000',
-            orderNumber: ordemServico.trim() || `OS nº ${Math.floor(100 + Math.random() * 900)}/2026-${normCpa}`,
-            eventName: nomeEvento.trim(),
-            eventSubtext: `Período: ${formatDateBRL(dataEvento)} a ${formatDateBRL(dataFimEvento)} (Dia ${i + 1} de ${countDays})`,
-            serviceDate: dayDate,
-            startTime: horario.trim() || '20h às 02h',
-            officersCount: numEfetivo,
-            joesPerOfficer: 1,
-            unitValue: numValorUnit,
-            totalValue: numEfetivo * numValorUnit,
-            status: operationToEdit?.status || 'APROVADO',
-            serviceOrderLink: '',
-            justification: justificativa.trim() || `Lançamento referente ao dia ${formatDateBRL(dayDate)} do período de ${formatDateBRL(dataEvento)} a ${formatDateBRL(dataFimEvento)}.`,
-            notes: `Operação contínua de ${countDays} dias (${formatDateBRL(dataEvento)} a ${formatDateBRL(dataFimEvento)}). Lançamento individualizado do dia ${formatDateBRL(dayDate)}.`,
-            authorizeExcess: autorizarExcedente,
-            createdBy: currentUser.name,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
+      const isSynced = Boolean(result && typeof result === 'object' && result.syncedWithCloud);
 
-          await onSave(dayOpData);
-          createdOps.push(dayOpData);
-        }
-
-        setStatusMessage({
-          type: 'success',
-          text: `${countDays} Lançamentos Gravados com Sucesso no Banco de Dados!`,
-          details: `Operação "${nomeEvento}" registrada para cada um dos ${countDays} dias do intervalo (${formatDateBRL(dataEvento)} a ${formatDateBRL(dataFimEvento)}) com ${numEfetivo} JOEs por dia, totalizando ${totalCalculatedJoes} JOEs (${formatCurrencyBRL(totalCalculatedValue)}) salvos no Supabase.`,
-        });
-      } else {
-        // SINGLE LAUNCH (ou Lançamento Consolidado do Período)
-        const opData: OperationLaunch = {
-          id: operationToEdit?.id || `op-${Date.now()}`,
-          launchNumber: operationToEdit?.launchNumber || ordemServico || `${Math.floor(10000 + Math.random() * 90000)}`,
-          commandId: normCpa,
-          subUnit: unidade,
-          ordinanceId: ordinance.id || 'ord-127-2026',
-          seiProcessNumber: processoSei.trim() || '2026.190110.00000',
-          orderNumber: ordemServico.trim() || `OS nº ${Math.floor(100 + Math.random() * 900)}/2026-${normCpa}`,
-          eventName: nomeEvento.trim(),
-          eventSubtext:
-            dateMode === 'RANGE' && countDays > 1
-              ? `Período: ${formatDateBRL(dataEvento)} a ${formatDateBRL(dataFimEvento)} (${countDays} dias)`
-              : undefined,
-          serviceDate: dataEvento || new Date().toISOString().split('T')[0],
-          startTime: horario.trim() || '20h às 02h',
-          officersCount: totalCalculatedJoes,
-          joesPerOfficer: 1,
-          unitValue: numValorUnit,
-          totalValue: totalCalculatedValue,
-          status: operationToEdit?.status || 'APROVADO',
-          serviceOrderLink: '',
-          justification: justificativa.trim(),
-          notes:
-            dateMode === 'RANGE' && countDays > 1
-              ? `Operação com período de execução de ${formatDateBRL(dataEvento)} a ${formatDateBRL(dataFimEvento)} (${countDays} dias).`
-              : undefined,
-          authorizeExcess: autorizarExcedente,
-          createdBy: currentUser.name,
-          createdAt: operationToEdit?.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-
-        const result = await onSave(opData);
-        const isSynced = Boolean(result && typeof result === 'object' && result.syncedWithCloud);
-
-        setStatusMessage({
-          type: 'success',
-          text: isSynced
-            ? 'Salvo com sucesso no Banco de Dados!'
-            : 'Lançamento Gravado com Sucesso!',
-          details:
-            dateMode === 'RANGE' && countDays > 1
-              ? `A solicitação de JOE para o período de ${formatDateBRL(dataEvento)} a ${formatDateBRL(dataFimEvento)} (${countDays} dias, ${totalCalculatedJoes} JOEs - ${formatCurrencyBRL(totalCalculatedValue)}) foi gravada com sucesso no Supabase.`
-              : `A solicitação de JOE para "${opData.eventName}" (${formatCurrencyBRL(opData.totalValue)}) foi gravada no Supabase e está disponível para todos os usuários.`,
-        });
-      }
-
+      // Confirmed saved
+      setStatusMessage({
+        type: 'success',
+        text: isSynced
+          ? 'Salvo com sucesso no Banco de Dados!'
+          : 'Lançamento Gravado com Sucesso!',
+        details: isSynced
+          ? `A solicitação de JOE para "${opData.eventName}" (R$ ${opData.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) foi gravada no Supabase e está disponível para todos os usuários.`
+          : `A solicitação para "${opData.eventName}" foi salva e colocada na fila prioritária de sincronização com o Supabase.`,
+      });
       setIsSubmitting(false);
 
       // Auto-navigate back to list after short display
@@ -292,7 +175,7 @@ export function CreateJoeView({
           }
           return curr;
         });
-      }, 1900);
+      }, 1800);
     } catch (err: any) {
       setIsSubmitting(false);
       setStatusMessage({
@@ -439,8 +322,8 @@ export function CreateJoeView({
           </div>
         </div>
 
-        {/* Row 2: Ordem de serviço / operação | Nome do evento */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {/* Row 2: Ordem de serviço / operação | Nome do evento | Data */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">
               Ordem de Serviço / Operação
@@ -462,233 +345,23 @@ export function CreateJoeView({
               type="text"
               value={nomeEvento}
               onChange={(e) => setNomeEvento(e.target.value)}
-              placeholder="Ex: SATURAÇÃO E IMPACTO, Operação Cidade Segura"
+              placeholder="Ex: Operação Impacto, Policiamento Carnaval"
               className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#7EC2E8] focus:border-[#002D5A] transition-all font-semibold"
             />
           </div>
-        </div>
 
-        {/* SEÇÃO ESPECIAL: DATA DA EXECUÇÃO (DATA ÚNICA OU INTERVALO DE DATAS) */}
-        <div className="bg-slate-50/90 border border-slate-200/90 rounded-2xl p-4 sm:p-5 space-y-4 shadow-2xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-[#002D5A]" />
-              <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                Data / Período da Execução da JOE
-              </span>
-            </div>
-
-            {/* Toggle Data Única vs Intervalo de Datas */}
-            <div className="flex items-center bg-white border border-slate-200 p-1 rounded-xl shadow-2xs self-start sm:self-auto">
-              <button
-                type="button"
-                onClick={() => setDateMode('SINGLE')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  dateMode === 'SINGLE'
-                    ? 'bg-[#002D5A] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <CalendarDays className="w-3.5 h-3.5" />
-                <span>Data Única (1 Dia)</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setDateMode('RANGE');
-                  if (!dataFimEvento || dataFimEvento <= dataEvento) {
-                    const start = new Date(dataEvento + 'T00:00:00');
-                    start.setDate(start.getDate() + 2); // default 3 days (e.g. 01/10 to 03/10)
-                    setDataFimEvento(start.toISOString().split('T')[0]);
-                  }
-                }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  dateMode === 'RANGE'
-                    ? 'bg-[#002D5A] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <CalendarRange className="w-3.5 h-3.5" />
-                <span>Intervalo de Datas (Período: Ex: 01/10 a 03/10)</span>
-              </button>
-            </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-[#002D5A]" />
+              <span>Data da Execução</span>
+            </label>
+            <input
+              type="date"
+              value={dataEvento}
+              onChange={(e) => setDataEvento(e.target.value)}
+              className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#7EC2E8] focus:border-[#002D5A] transition-all font-medium"
+            />
           </div>
-
-          {/* INPUTS DE DATA */}
-          {dateMode === 'SINGLE' ? (
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-[#002D5A]" />
-                <span>Data da Execução *</span>
-              </label>
-              <input
-                type="date"
-                value={dataEvento}
-                onChange={(e) => {
-                  setDataEvento(e.target.value);
-                  setDataFimEvento(e.target.value);
-                }}
-                className="w-full sm:w-80 bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#7EC2E8] focus:border-[#002D5A] transition-all font-medium"
-              />
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {/* Data Início */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-[#002D5A]" />
-                    <span>Data de Início (De) *</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={dataEvento}
-                    onChange={(e) => {
-                      setDataEvento(e.target.value);
-                      if (dataFimEvento && e.target.value > dataFimEvento) {
-                        setDataFimEvento(e.target.value);
-                      }
-                    }}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#7EC2E8] focus:border-[#002D5A] transition-all font-medium"
-                  />
-                </div>
-
-                {/* Data Término */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                    <CalendarRange className="w-3.5 h-3.5 text-[#002D5A]" />
-                    <span>Data de Término (Até) *</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={dataFimEvento}
-                    min={dataEvento}
-                    onChange={(e) => setDataFimEvento(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#7EC2E8] focus:border-[#002D5A] transition-all font-medium"
-                  />
-                </div>
-
-                {/* Resumo do Período Badge */}
-                <div className="sm:col-span-2 lg:col-span-1 flex flex-col justify-end">
-                  <div className="p-3 bg-white border border-sky-200 rounded-xl flex items-center gap-3 text-xs">
-                    <div className="w-8 h-8 rounded-lg bg-sky-100 text-[#002D5A] flex items-center justify-center font-bold font-mono shrink-0">
-                      {countDays}d
-                    </div>
-                    <div>
-                      <div className="font-bold text-[#002D5A]">
-                        {countDays === 1 ? '1 dia selecionado' : `${countDays} dias de operação`}
-                      </div>
-                      <div className="text-slate-500 font-medium text-[11px]">
-                        {formatDateBRL(dataEvento)} até {formatDateBRL(dataFimEvento)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Atalhos rápidos para preenchimento de intervalo */}
-              <div className="flex items-center gap-2 flex-wrap text-[11px] text-slate-600">
-                <span className="font-semibold text-slate-500">Atalhos rápidos:</span>
-                <button
-                  type="button"
-                  onClick={() => applyRangeShortcut(2)}
-                  className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 font-medium transition-colors cursor-pointer"
-                >
-                  +1 Dia (2 dias)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyRangeShortcut(3)}
-                  className="px-2.5 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-[#002D5A] border border-sky-200 font-bold transition-colors cursor-pointer"
-                >
-                  Exemplo: 3 Dias (ex: 01/10 a 03/10)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyRangeShortcut(5)}
-                  className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 font-medium transition-colors cursor-pointer"
-                >
-                  5 Dias Úteis
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyRangeShortcut(7)}
-                  className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 font-medium transition-colors cursor-pointer"
-                >
-                  7 Dias (Semana)
-                </button>
-              </div>
-
-              {/* Opções de Cálculo e Gravação para Intervalo */}
-              <div className="p-3.5 bg-sky-50/60 border border-sky-200 rounded-xl space-y-2.5 text-xs">
-                <div className="font-bold text-slate-800 flex items-center gap-1.5">
-                  <Calculator className="w-3.5 h-3.5 text-[#002D5A]" />
-                  <span>Como calcular o efetivo no intervalo de {countDays} dias:</span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                  <label
-                    className={`p-2.5 rounded-lg border flex items-start gap-2.5 cursor-pointer transition-all ${
-                      rangeEffectiveMode === 'DAILY_PER_DAY'
-                        ? 'bg-white border-[#002D5A] ring-1 ring-[#002D5A] text-slate-900 shadow-2xs'
-                        : 'bg-white/60 border-slate-200 text-slate-600 hover:bg-white'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="rangeCalc"
-                      checked={rangeEffectiveMode === 'DAILY_PER_DAY'}
-                      onChange={() => setRangeEffectiveMode('DAILY_PER_DAY')}
-                      className="mt-0.5 text-[#002D5A]"
-                    />
-                    <div>
-                      <strong className="block font-bold">Efetivo Diário (Multiplicar por dia)</strong>
-                      <span className="text-[11px] text-slate-500 block">
-                        {numEfetivo} policiais/dia × {countDays} dias = <strong>{numEfetivo * countDays} JOEs no total</strong>
-                      </span>
-                    </div>
-                  </label>
-
-                  <label
-                    className={`p-2.5 rounded-lg border flex items-start gap-2.5 cursor-pointer transition-all ${
-                      rangeEffectiveMode === 'TOTAL_PERIOD'
-                        ? 'bg-white border-[#002D5A] ring-1 ring-[#002D5A] text-slate-900 shadow-2xs'
-                        : 'bg-white/60 border-slate-200 text-slate-600 hover:bg-white'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="rangeCalc"
-                      checked={rangeEffectiveMode === 'TOTAL_PERIOD'}
-                      onChange={() => setRangeEffectiveMode('TOTAL_PERIOD')}
-                      className="mt-0.5 text-[#002D5A]"
-                    />
-                    <div>
-                      <strong className="block font-bold">Efetivo Total Fixo do Período</strong>
-                      <span className="text-[11px] text-slate-500 block">
-                        Exatamente {numEfetivo} JOEs distribuídas no período total
-                      </span>
-                    </div>
-                  </label>
-                </div>
-
-                {/* Opção de Gravação Diária Individualizada no Supabase */}
-                <div className="pt-2 border-t border-sky-200/80 flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="saveAsDaily"
-                    checked={saveAsDailyEntries}
-                    onChange={(e) => setSaveAsDailyEntries(e.target.checked)}
-                    className="w-4 h-4 text-[#002D5A] rounded-md border-slate-300 focus:ring-[#7EC2E8] cursor-pointer"
-                  />
-                  <label htmlFor="saveAsDaily" className="text-xs font-semibold text-slate-800 cursor-pointer select-none">
-                    Criar lançamentos diários individualizados no banco de dados (um registro para cada dia: {rangeDates.map((d) => formatDateBRL(d).substring(0, 5)).join(', ')})
-                  </label>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Row 3: Horário | Efetivo empregado (nº de JOEs) | Valor unitário (R$) */}
@@ -710,11 +383,7 @@ export function CreateJoeView({
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5 text-[#002D5A]" />
-              <span>
-                {dateMode === 'RANGE' && rangeEffectiveMode === 'DAILY_PER_DAY'
-                  ? 'Efetivo Diário por Turno (JOEs/dia) *'
-                  : 'Efetivo Empregado (JOEs) *'}
-              </span>
+              <span>Efetivo Empregado (JOEs) *</span>
             </label>
             <input
               type="number"
@@ -743,23 +412,15 @@ export function CreateJoeView({
         </div>
 
         {/* Accounting Calculation Callout */}
-        <div className="p-4 bg-sky-50/80 border border-[#7EC2E8]/60 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+        <div className="p-4 bg-sky-50/70 border border-[#7EC2E8]/50 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
           <div className="flex items-center gap-2.5 text-xs text-slate-700">
-            <CheckCircle2 className="w-5 h-5 text-[#002D5A] shrink-0" />
-            <div>
-              {dateMode === 'RANGE' && countDays > 1 && rangeEffectiveMode === 'DAILY_PER_DAY' ? (
-                <span>
-                  Cálculo Contábil: <strong className="text-slate-900 font-mono text-sm">{countDays} dias</strong> × <strong className="text-slate-900 font-mono text-sm">{formatInteger(numEfetivo)} JOEs/dia</strong> = <strong className="text-emerald-800 font-mono text-sm">{formatInteger(totalCalculatedJoes)} JOEs no total</strong> × <strong className="text-slate-900 font-mono text-sm">{formatCurrencyBRL(numValorUnit)}</strong>
-                </span>
-              ) : (
-                <span>
-                  Cálculo Contábil: <strong className="text-slate-900 font-mono text-sm">{formatInteger(totalCalculatedJoes)} JOEs</strong> × <strong className="text-slate-900 font-mono text-sm">{formatCurrencyBRL(numValorUnit)}</strong>
-                </span>
-              )}
-            </div>
+            <CheckCircle2 className="w-4.5 h-4.5 text-[#002D5A] shrink-0" />
+            <span>
+              Cálculo Contábil: <strong className="text-slate-900 font-mono text-sm">{formatInteger(Number(efetivo) || 0)} JOEs</strong> × <strong className="text-slate-900 font-mono text-sm">{formatCurrencyBRL(Number(valorUnitario) || 350)}</strong>
+            </span>
           </div>
-          <div className="text-base sm:text-lg font-extrabold text-[#002D5A] font-mono shrink-0">
-            Total Previsto: {formatCurrencyBRL(totalCalculatedValue)}
+          <div className="text-sm sm:text-base font-extrabold text-[#002D5A] font-mono">
+            Total Previsto: {formatCurrencyBRL((Number(efetivo) || 0) * (Number(valorUnitario) || 350))}
           </div>
         </div>
 
@@ -805,18 +466,12 @@ export function CreateJoeView({
             {isSubmitting ? (
               <>
                 <div className="w-4.5 h-4.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span>Gravando no Banco de Dados...</span>
+                <span>Salvando no Banco de Dados...</span>
               </>
             ) : (
               <>
                 {operationToEdit ? <Save className="w-4.5 h-4.5" /> : <PlusCircle className="w-4.5 h-4.5 text-[#7EC2E8]" />}
-                <span>
-                  {operationToEdit
-                    ? 'Salvar Alterações'
-                    : dateMode === 'RANGE' && countDays > 1 && saveAsDailyEntries
-                    ? `Confirmar ${countDays} Lançamentos Diários`
-                    : 'Confirmar Lançamento de JOE'}
-                </span>
+                <span>{operationToEdit ? 'Salvar Alterações' : 'Confirmar Lançamento de JOE'}</span>
               </>
             )}
           </button>
